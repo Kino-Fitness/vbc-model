@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import os
 import tensorflow as tf
 from tensorflow.keras.layers import Input, GlobalAveragePooling2D, Dense, BatchNormalization, Flatten, concatenate
 from tensorflow.keras.applications import MobileNetV2
@@ -8,99 +7,11 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from sklearn.metrics import mean_absolute_error
+from utils import Scalar2Gaussian, process_data, s2g
 
-train_df = pd.read_pickle('vbctrain_df.pkl')
-train_df = train_df.drop(13)
-val_df = pd.read_pickle('vbcval_df.pkl')
-test_df = pd.read_pickle('vbctest_df.pkl')
-print(f"Before Augmentation: Train: {len(train_df)} Val: {len(val_df)} Test: {len(test_df)}")
-
-def apply_random_augmentation(image):
-    image = tf.convert_to_tensor(image)
-    image = tf.image.random_flip_left_right(image)
-    image = tf.image.random_brightness(image, max_delta=0.2)
-    image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
-    image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
-    image = tf.image.random_hue(image, max_delta=0.1)
-    return np.array(image)
-
-def augment_data(df, num_augmentations):
-    augmented_df = pd.concat([df, df], ignore_index=True)
-    for i in range(num_augmentations):
-        augmented_df = pd.concat([augmented_df, augmented_df], ignore_index=True)
-
-    for index, row in augmented_df.iterrows():
-        augmented_df.at[index, 'Front Image'] = apply_random_augmentation(row['Front Image']).astype(np.float32)
-        augmented_df.at[index, 'Back Image'] = apply_random_augmentation(row['Back Image']).astype(np.float32)
-
-    return pd.concat([df, augmented_df], ignore_index=True)
-
-train_df = augment_data(train_df, 2)
-val_df = augment_data(val_df, 1)
-print(f"After Augmentation: Train: {len(train_df)} Val: {len(val_df)} Test: {len(test_df)}")
-
-class Scalar2Gaussian():
-    def __init__(self,min=0.0,max=99.0,sigma=4.0,bins=1000):
-        self.min, self.max, self.bins, self.sigma = float(min), float(max), bins, sigma
-        self.idxs = np.linspace(self.min,self.max,self.bins)
-    def softmax(self, vector):
-        e_x = np.exp(vector - np.max(vector))
-        return e_x / e_x.sum()
-
-    def code(self,scalar):
-        probs = np.exp(-((self.idxs - scalar) / 2*self.sigma)**2)
-        probs = probs/probs.sum()
-        return probs
-  
-    def decode(self, vector):
-        if np.abs(vector.sum()-1.0) < 1e-3 and np.all(vector>-1e-4):
-            probs=vector
-        else: 
-            probs = self.softmax(vector)
-        scalar = np.dot(probs, self.idxs)
-        return scalar
-
-    def decode_tensor(self, vector):
-        def true_fn():
-            return vector
-
-        def false_fn():
-            return tf.nn.softmax(vector)
-
-        probs = tf.cond(
-        tf.logical_and(
-            tf.math.abs(tf.reduce_sum(vector) - 1.0) < 1e-3,
-            tf.reduce_all(vector > -1e-4)
-        ),
-        true_fn,
-        false_fn
-        )
-
-        scalar = tf.reduce_sum(probs * self.idxs)
-        return scalar
-  
-s2g = {
-    'body_fat': Scalar2Gaussian(min=4.0, max=30.0),
-}
-
-def process_data(df):
-    X_front_images = []
-    X_back_images = []
-    X_tabular = []
-    Y_body_fat = []
-
-    for index, row in df.iterrows():
-        X_front_images.append(row['Front Image'])
-        X_back_images.append(row['Back Image'])
-        X_tabular.append([float(row['Height']), float(row['Weight']), float(row['Right Bicep']), float(row['Left Bicep']), float(row['Chest']), float(row['Right Forearm']), float(row['Left Forearm']), float(row['Right Quad']), float(row['Left Quad']), float(row['Right Calf']), float(row['Left Calf']), float(row['Waist']), float(row['Hips'])])
-        Y_body_fat.append(s2g['body_fat'].code(float(row['Training Body Fat %'])))
-    
-    X_front_images = np.array(X_front_images)
-    X_back_images = np.array(X_back_images)
-    X_tabular = np.array(X_tabular)
-    Y_body_fat = np.array(Y_body_fat)
-
-    return X_front_images, X_back_images, X_tabular, Y_body_fat
+train_df = pd.read_pickle('saved/dataframes/train_df.pkl')
+val_df = pd.read_pickle('saved/dataframes/val_df.pkl')
+test_df = pd.read_pickle('saved/dataframes/test_df.pkl')
 
 X_train_front_images, X_train_back_images, X_train_tabular, Y_train_body_fat = process_data(train_df)
 X_val_front_images, X_val_back_images, X_val_tabular, Y_val_body_fat = process_data(val_df)
@@ -186,7 +97,7 @@ def train_ensemble(n_models, X_train_front, X_train_back, X_train_tabular, Y_tra
         model = create_model(image_shape, num_tabular_features)\
         
 
-        model_path = f'/home/aavsi/multitask/saved/exported_models/model_{i}.keras'
+        model_path = f'./saved/models/model_{i}.keras'
         checkpoint = ModelCheckpoint(model_path, 
                                      monitor='val_loss', 
                                      save_best_only=True, 
@@ -231,10 +142,10 @@ def ensemble_predict(models, X_front, X_back, X_tabular):
 
 # Main execution
 image_shape = (224, 224, 3)
-num_tabular_features = 13
+num_tabular_features = 4
 
 # Train the ensemble
-n_models = 1  # Number of models in the ensemble
+n_models = 3  # Number of models in the ensemble
 ensemble = train_ensemble(n_models, X_train_front_images, X_train_back_images, X_train_tabular, Y_train_body_fat, X_val_front_images, X_val_back_images, X_val_tabular, Y_val_body_fat, image_shape, num_tabular_features)
 
 # Make predictions using the ensemble
@@ -277,10 +188,3 @@ ground_truth = {
 
 print_predictions(predictions, ground_truth)
 
-import tensorflow as tf
-
-def print_num_gpus():
-    gpus = tf.config.list_physical_devices('GPU')
-    print(f"Number of GPUs detected: {len(gpus)}")
-
-print_num_gpus()
