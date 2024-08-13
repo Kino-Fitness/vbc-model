@@ -26,12 +26,6 @@ train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 front_images, back_images, tabular, body_fat = process_data(train_df)
 X_test_front_images, X_test_back_images, X_test_tabular, Y_test_body_fat = process_data(test_df)
 
-# Delete every past file in saved/models
-folder_path = './saved/models/'
-for filename in os.listdir(folder_path):
-    file_path = os.path.join(folder_path, filename)
-    os.remove(file_path)
-
 outputs = ['body_fat']
 
 # Define model creation function
@@ -68,14 +62,13 @@ def create_model(image_shape, num_tabular_features):
         outputs=output_layers
     )
 
-    model.compile(optimizer=AdamW(learning_rate=.001, weight_decay=.001), 
+    model.compile(optimizer=AdamW(learning_rate=.0001, weight_decay=.001), 
                   loss=['mse'],
                   metrics=['mae'])
     
     return model
 def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y, 
                       image_shape, num_tabular_features, n_splits=5):
-    weights = [1] * n_splits
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
     for i in range(n_models):
@@ -99,52 +92,45 @@ def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y,
                                          mode='min', 
                                          verbose=1)
             early_stopping = EarlyStopping(monitor='loss', 
-                                           patience=10, 
+                                           patience=20, 
                                            mode='min', 
                                            verbose=1)
             
             model.fit(
                 [X_train_front, X_train_back, X_train_tabular],
                 {'output_body_fat': Y_train},
-                epochs=100,
+                epochs=1000,
                 batch_size=8,
                 verbose=1,
                 callbacks=[checkpoint, early_stopping],
                 validation_data=([X_val_front, X_val_back, X_val_tabular], {'output_body_fat': Y_val})
             ) 
 
-            # Save model path and delete model from memory
-            # model_paths.append(model_path)
             del model
-            
-            # # Load the best model for this fold
-            # loaded_model = tf.keras.models.load_model(model_path)
-
-            # # Predict on the validation fold
-            # predictions_body_fat = loaded_model.predict([X_val_front, X_val_back, X_val_tabular]).flatten()
-            # mae = mean_absolute_error(Y_val, predictions_body_fat)
-            # weights.append(1 / mae)
-
-            # Delete loaded model from memory
-            # del loaded_model
             tf.keras.backend.clear_session()
             gc.collect()
 
-    return weights
-
 # Define ensemble prediction function
-def ensemble_predict(weights, X_front, X_back, X_tabular):
+def ensemble_predict(ground_truth, X_front, X_back, X_tabular):
     predictions = []
+    weight_sum = 0
+
     model_paths = os.listdir('./saved/models/')
     for i, model_path in enumerate(model_paths):
         model = tf.keras.models.load_model(os.path.join('./saved/models/', model_path))
-        pred = model.predict([X_front, X_back, X_tabular])
-        weighted_pred = pred.flatten() * weights[i]
+        
+        predictions_body_fat = model.predict([X_front, X_back, X_tabular]).flatten()
+        mae = mean_absolute_error(ground_truth, predictions_body_fat)
+        print(f"  Model {i+1}/{len(model_paths)} MAE: {round(mae, 2)}")
+        weight = 1 / (mae ** 2)
+        weighted_pred = predictions_body_fat * weight
+        weight_sum += weight
+
         predictions.append(weighted_pred)
         del model
         tf.keras.backend.clear_session()
     
-    weighted_avg_prediction = np.sum(predictions, axis=0) / np.sum(weights)
+    weighted_avg_prediction = np.sum(predictions, axis=0) / weight_sum
     return np.round(weighted_avg_prediction, 1)
 
 def print_evaluation(predictions, ground_truth):
@@ -159,9 +145,15 @@ num_tabular_features = tabular.shape[1]
 n_models = 1
 n_splits = 4
 
-weights = train_ensemble_cv(n_models, front_images, back_images, tabular, body_fat, image_shape, num_tabular_features, n_splits)
+# Delete every past file in saved/models
+folder_path = './saved/models/'
+for filename in os.listdir(folder_path):
+    file_path = os.path.join(folder_path, filename)
+    os.remove(file_path)
 
-predictions_body_fat = ensemble_predict(weights, X_test_front_images, X_test_back_images, X_test_tabular)
+train_ensemble_cv(n_models, front_images, back_images, tabular, body_fat, image_shape, num_tabular_features, n_splits)
+
+predictions_body_fat = ensemble_predict(Y_test_body_fat, X_test_front_images, X_test_back_images, X_test_tabular)
 
 predictions = {
     'body_fat': predictions_body_fat
@@ -172,3 +164,4 @@ ground_truth = {
 }
 
 print_evaluation(predictions_body_fat, Y_test_body_fat)
+
