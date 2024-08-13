@@ -133,7 +133,7 @@ class Scalar2Gaussian():
     
 
 s2g = {
-    'body_fat': Scalar2Gaussian(min=4.0, max=30.0),
+    'body_fat': Scalar2Gaussian(min=4.0, max=30.0, bins=50),
 }
 
 def process_data(df):
@@ -143,10 +143,11 @@ def process_data(df):
     Y_body_fat = []
 
     for index, row in df.iterrows():
-        X_front_images.append(row['Front Image'])
-        X_back_images.append(row['Back Image'])
-        X_tabular.append([float(row['Height']), float(row['Weight']), float(row['Waist']), float(row['Hips'])])
-        Y_body_fat.append(s2g['body_fat'].code(float(row['Training Body Fat %'])))
+        X_front_images.append((row['Front Image'].astype(np.float32) / 255) - 0.5)
+        X_back_images.append((row['Back Image'].astype(np.float32) / 255) - 0.5)
+        X_tabular.append([float(row['Height']), float(row['Weight']), float(row['Waist'])/float(row['Hips'])])
+        # Y_body_fat.append(s2g['body_fat'].code(float(row['Training Body Fat %'])))
+        Y_body_fat.append(float(row['Training Body Fat %']))
     
     X_front_images = np.array(X_front_images)
     X_back_images = np.array(X_back_images)
