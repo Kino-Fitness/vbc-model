@@ -14,6 +14,7 @@ import os
 import gc
 import psutil
 import subprocess
+import concurrent.futures
 
 class MemoryCallback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
@@ -24,11 +25,16 @@ class MemoryCallback(tf.keras.callbacks.Callback):
         
         # GPU memory
         try:
-            result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,nounits,noheader'])
-            gpu_memory = [int(x) for x in result.decode('ascii').split(',')]
+            result = subprocess.check_output(
+                ['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,nounits,noheader'], 
+                stderr=subprocess.STDOUT
+            )
+            gpu_memory = [int(x) for x in result.decode('ascii').replace('\n', '').split(',')]
             print(f"GPU memory used: {gpu_memory[0]} MB / {gpu_memory[1]} MB")
-        except:
-            print("Unable to fetch GPU memory")
+        except subprocess.CalledProcessError as e:
+            print(f"Unable to fetch GPU memory: {e.output.decode('ascii')}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {str(e)}")
 
 # Settings
 pd.set_option('display.max_rows', None)
@@ -45,21 +51,6 @@ train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 front_images, back_images, tabular, body_fat = process_data(train_df)
 X_test_front_images, X_test_back_images, X_test_tabular, Y_test_body_fat = process_data(test_df)
 
-def print_memory_size(array, name):
-    size_bytes = array.nbytes
-    size_mb = size_bytes / (1024 ** 2)  # Convert bytes to megabytes
-    print(f"{name} size in megabytes: {size_mb:.2f}")
-
-# Print memory sizes for each array
-print_memory_size(front_images, "Front Images")
-print_memory_size(back_images, "Back Images")
-print_memory_size(tabular, "Tabular Data")
-print_memory_size(body_fat, "Body Fat")
-
-print_memory_size(X_test_front_images, "X Test Front Images")
-print_memory_size(X_test_back_images, "X Test Back Images")
-print_memory_size(X_test_tabular, "X Test Tabular")
-print_memory_size(Y_test_body_fat, "Y Test Body Fat")
 
 outputs = ['body_fat']
 
@@ -103,51 +94,65 @@ def create_model(image_shape, num_tabular_features):
                   metrics=['mae'])
     
     return model
+    
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, image_shape, num_tabular_features):
+    gpu_id = fold % len(tf.config.experimental.list_physical_devices('GPU'))  
+    with tf.device(f'/GPU:{gpu_id}'):
+        print(f"  Training on fold {fold} on GPU {gpu_id}")
+        
+        # Split the data
+        X_train_front, X_val_front = X_front[train_index], X_front[val_index]
+        X_train_back, X_val_back = X_back[train_index], X_back[val_index]
+        X_train_tabular, X_val_tabular = X_tabular[train_index], X_tabular[val_index]
+        Y_train, Y_val = Y[train_index], Y[val_index]
+        
+        # Create and train the model
+        model = create_model(image_shape, num_tabular_features)
+        model_path = f'./saved/models/model_fold_{fold}.keras'
+        checkpoint = ModelCheckpoint(model_path, 
+                                     monitor='val_loss', 
+                                     save_best_only=True, 
+                                     mode='min', 
+                                     verbose=1)
+        early_stopping = EarlyStopping(monitor='loss', 
+                                       patience=20, 
+                                       mode='min', 
+                                       verbose=1)
+        
+        history = model.fit(
+            [X_train_front, X_train_back, X_train_tabular],
+            {'output_body_fat': Y_train},
+            epochs=500,
+            batch_size=32,
+            verbose=1,
+            callbacks=[checkpoint, early_stopping, MemoryCallback()],
+            validation_data=([X_val_front, X_val_back, X_val_tabular], {'output_body_fat': Y_val})
+        ) 
+        
+        del model
+        tf.keras.backend.clear_session()
+        gc.collect()
+
+        return history
+
 def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y, 
                       image_shape, num_tabular_features, n_splits=5):
     histories = []
-
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tf.config.experimental.list_physical_devices('GPU'))) as executor:
+        futures = []
+        
+        for i in range(n_models):
+            print(f"Training model {i+1}/{n_models}")
 
-    for i in range(n_models):
-        print(f"Training model {i+1}/{n_models}")
+            for fold, (train_index, val_index) in enumerate(kf.split(X_tabular)):
+                # Submit the training of each fold to the thread pool
+                futures.append(executor.submit(train_fold, fold, train_index, val_index,
+                                               X_front, X_back, X_tabular, Y, image_shape, num_tabular_features))
 
-        for fold, (train_index, val_index) in enumerate(kf.split(X_tabular)):
-            print(f"  Training on fold {fold + 1}/{n_splits}")
-            
-            # Split the data
-            X_train_front, X_val_front = X_front[train_index], X_front[val_index]
-            X_train_back, X_val_back = X_back[train_index], X_back[val_index]
-            X_train_tabular, X_val_tabular = X_tabular[train_index], X_tabular[val_index]
-            Y_train, Y_val = Y[train_index], Y[val_index]
-            
-            # Create and train the model
-            model = create_model(image_shape, num_tabular_features)
-            model_path = f'./saved/models/model_{i}_fold_{fold}.keras'
-            checkpoint = ModelCheckpoint(model_path, 
-                                         monitor='val_loss', 
-                                         save_best_only=True, 
-                                         mode='min', 
-                                         verbose=1)
-            early_stopping = EarlyStopping(monitor='loss', 
-                                           patience=20, 
-                                           mode='min', 
-                                           verbose=1)
-            
-            history = model.fit(
-                [X_train_front, X_train_back, X_train_tabular],
-                {'output_body_fat': Y_train},
-                epochs=2,
-                batch_size=4,
-                verbose=1,
-                callbacks=[checkpoint, early_stopping, MemoryCallback()],
-                validation_data=([X_val_front, X_val_back, X_val_tabular], {'output_body_fat': Y_val})
-            ) 
-            histories.append(history)
-
-            del model
-            tf.keras.backend.clear_session()
-            gc.collect()
+        for future in concurrent.futures.as_completed(futures):
+            histories.append(future.result())
 
     return histories
 
@@ -210,7 +215,7 @@ def plot_histories(histories):
 image_shape = (224, 224, 3)
 num_tabular_features = tabular.shape[1] 
 n_models = 1
-n_splits = 5
+n_splits = 4
 
 # Delete every past file in saved/models
 folder_path = './saved/models/'

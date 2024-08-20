@@ -15,6 +15,11 @@ df = df[['Height', 'Weight', 'Front Image', 'Back Image', 'Training Body Fat %',
 
 df = process_df(df)
 df = distribute_body_fat(df)
+
+directory = "saved/dataframes"
+if not os.path.exists(directory):
+    os.makedirs(directory)
+
 df.to_pickle('saved/dataframes/df.pkl')
 
 df.head()
