@@ -20,10 +20,12 @@ directory = "saved/dataframes"
 if not os.path.exists(directory):
     os.makedirs(directory)
 
+df = df[:57]
 df.to_pickle('saved/dataframes/df.pkl')
 
-df.head()
-len(df)
+# df.head(57)
+# len(df)
+# df = pd.read_pickle('saved/dataframes/df.pkl')
 # Rows with missing values seperate the train/val/test splits
 # separation_indices = df[df['Height'].isnull()].index
 

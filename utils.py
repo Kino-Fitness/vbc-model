@@ -4,7 +4,7 @@ from PIL import Image
 import urllib.request
 import pyheif
 from ultralytics import YOLO
-import tensorflow as tf
+import torchvision.transforms as transforms
 
 def get_image(link):
     link_parts = link.split("/")
@@ -13,7 +13,6 @@ def get_image(link):
 
     try:
         response = urllib.request.urlopen(parsed_link)
-        
         heif_file = pyheif.read(response)
 
         image = Image.frombytes(
@@ -37,6 +36,16 @@ def get_image(link):
     except Exception as e:
         print(f"Error: {e}, link: {link}")
 
+def apply_random_augmentation(image):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+        transforms.ToPILImage()
+    ])
+    augmented_image = transform(image)
+    return np.array(augmented_image)
+
 def augment_data(df, num_augmentations):
     original_length = len(df)
     if original_length == 0:
@@ -46,8 +55,8 @@ def augment_data(df, num_augmentations):
     for i in range(num_augmentations):
         row_index = i % original_length
         row = df.iloc[row_index].copy()
-        row['Front Image'] = apply_random_augmentation(row['Front Image']).astype(np.float32)
-        row['Back Image'] = apply_random_augmentation(row['Back Image']).astype(np.float32)
+        row['Front Image'] = apply_random_augmentation(Image.fromarray(row['Front Image']))
+        row['Back Image'] = apply_random_augmentation(Image.fromarray(row['Back Image']))
         augmented_rows.append(row)
     
     augmented_df = pd.DataFrame(augmented_rows)
@@ -79,62 +88,8 @@ def distribute_body_fat(df):
             augmented_df = augment_data(bucket_df, num_augmentations)
             df = pd.concat([df, augmented_df], ignore_index=True)
 
-    df.drop('Body Fat Bucket', axis=1)
+    df.drop('Body Fat Bucket', axis=1, inplace=True)
     return df
-
-def apply_random_augmentation(image):
-    image = tf.convert_to_tensor(image)
-    image = tf.image.random_flip_left_right(image)
-    image = tf.image.random_brightness(image, max_delta=0.2)
-    image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
-    image = tf.image.random_saturation(image, lower=0.8, upper=1.2)
-    image = tf.image.random_hue(image, max_delta=0.1)
-    return np.array(image)
-
-class Scalar2Gaussian():
-    def __init__(self,min=0.0,max=99.0,sigma=4.0,bins=1000):
-        self.min, self.max, self.bins, self.sigma = float(min), float(max), bins, sigma
-        self.idxs = np.linspace(self.min,self.max,self.bins)
-    def softmax(self, vector):
-        e_x = np.exp(vector - np.max(vector))
-        return e_x / e_x.sum()
-
-    def code(self,scalar):
-        probs = np.exp(-((self.idxs - scalar) / 2*self.sigma)**2)
-        probs = probs/probs.sum()
-        return probs
-  
-    def decode(self, vector):
-        if np.abs(vector.sum()-1.0) < 1e-3 and np.all(vector>-1e-4):
-            probs=vector
-        else: 
-            probs = self.softmax(vector)
-        scalar = np.dot(probs, self.idxs)
-        return scalar
-
-    def decode_tensor(self, vector):
-        def true_fn():
-            return vector
-
-        def false_fn():
-            return tf.nn.softmax(vector)
-
-        probs = tf.cond(
-        tf.logical_and(
-            tf.math.abs(tf.reduce_sum(vector) - 1.0) < 1e-3,
-            tf.reduce_all(vector > -1e-4)
-        ),
-        true_fn,
-        false_fn
-        )
-
-        scalar = tf.reduce_sum(probs * self.idxs)
-        return scalar
-    
-
-s2g = {
-    'body_fat': Scalar2Gaussian(min=4.0, max=30.0, bins=50),
-}
 
 def process_data(df):
     X_front_images = []
@@ -146,7 +101,6 @@ def process_data(df):
         X_front_images.append((row['Front Image'].astype(np.float32) / 255) - 0.5)
         X_back_images.append((row['Back Image'].astype(np.float32) / 255) - 0.5)
         X_tabular.append([float(row['Height']), float(row['Weight']), float(row['Waist'])/float(row['Hips'])])
-        # Y_body_fat.append(s2g['body_fat'].code(float(row['Training Body Fat %'])))
         Y_body_fat.append(float(row['Training Body Fat %']))
     
     X_front_images = np.array(X_front_images)

@@ -1,49 +1,23 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf
-from tensorflow.keras.layers import Input, GlobalAveragePooling2D, Dense, BatchNormalization, Flatten, concatenate
-from tensorflow.keras.applications import MobileNetV2
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import AdamW
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import KFold, train_test_split
 from utils import process_data
 import os
 import gc
-import psutil
-import subprocess
 import concurrent.futures
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import models
+from torch.optim import AdamW, optim
+from torch.utils.data import DataLoader, TensorDataset
 
-class MemoryCallback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        # System memory
-        memory = psutil.virtual_memory()
-        print(f"Epoch {epoch}")
-        print(f"System memory used: {memory.percent}%")
-        
-        # GPU memory
-        try:
-            result = subprocess.check_output(
-                ['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,nounits,noheader'], 
-                stderr=subprocess.STDOUT
-            )
-            gpu_memory = [int(x) for x in result.decode('ascii').replace('\n', '').split(',')]
-            print(f"GPU memory used: {gpu_memory[0]} MB / {gpu_memory[1]} MB")
-        except subprocess.CalledProcessError as e:
-            print(f"Unable to fetch GPU memory: {e.output.decode('ascii')}")
-        except Exception as e:
-            print(f"An unexpected error occurred: {str(e)}")
 
 # Settings
 pd.set_option('display.max_rows', None)
 np.set_printoptions(threshold=100)
-# tf.debugging.set_log_device_placement(True)
-# gpus = tf.config.experimental.list_physical_devices('GPU')
-# for gpu in gpus:
-#     tf.config.experimental.set_memory_growth(gpu, True)
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
 
 # Load data
 df = pd.read_pickle('saved/dataframes/df.pkl')
@@ -51,89 +25,150 @@ train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 front_images, back_images, tabular, body_fat = process_data(train_df)
 X_test_front_images, X_test_back_images, X_test_tabular, Y_test_body_fat = process_data(test_df)
 
-
 outputs = ['body_fat']
 
+# Define the custom PyTorch model
+class MultiInputModel(nn.Module):
+    def __init__(self, image_shape, num_tabular_features, outputs):
+        super(MultiInputModel, self).__init__()
+        
+        # Load pretrained MobileNetV2 and remove the final classification layer
+        self.feature_extractor = models.mobilenet_v2(pretrained=True).features
+        
+        # Global Average Pooling
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+        # Flatten layer
+        self.flatten = nn.Flatten()
+        
+        # Batch normalization layer for image features
+        self.image_bn = nn.BatchNorm1d(1280)  # 1280 is the number of features from MobileNetV2
+        
+        # Dense layers for tabular data
+        self.tabular_dense1 = nn.Linear(num_tabular_features, 32)
+        self.tabular_bn = nn.BatchNorm1d(32)
+        
+        # Combined features dimension
+        combined_features_dim = 1280 * 2 + 32
+        
+        # Define output layers
+        self.output_layers = nn.ModuleList([
+            nn.Linear(combined_features_dim, 1) for _ in outputs
+        ])
+
+    def process_image(self, x):
+        x = self.feature_extractor(x)
+        x = self.global_avg_pool(x)
+        x = self.flatten(x)
+        x = self.image_bn(x)
+        return x
+
+    def forward(self, front_image_input, back_image_input, tabular_input):
+        # Process images
+        front_image_features = self.process_image(front_image_input)
+        back_image_features = self.process_image(back_image_input)
+        
+        # Process tabular data
+        tabular_features = F.relu(self.tabular_dense1(tabular_input))
+        tabular_features = self.tabular_bn(tabular_features)
+        
+        # Combine all features
+        combined_features = torch.cat([front_image_features, back_image_features, tabular_features], dim=1)
+        
+        # Generate outputs
+        outputs = [output_layer(combined_features) for output_layer in self.output_layers]
+        
+        return outputs
+
 # Define model creation function
-def create_model(image_shape, num_tabular_features):
-    base_model = MobileNetV2(input_shape=image_shape, include_top=False, weights='imagenet')
-    
-    # Define a function to process images through the base model
-    def process_image(image_input):
-        x = base_model(image_input)
-        x = GlobalAveragePooling2D()(x)
-        x = Flatten()(x)
-        return BatchNormalization()(x)
-    
-    front_image_input = Input(shape=image_shape, name='front_image_input')
-    back_image_input = Input(shape=image_shape, name='back_image_input')
-    tabular_input = Input(shape=(num_tabular_features,), name='tabular_input')
-    
-    front_image_features = process_image(front_image_input)
-    back_image_features = process_image(back_image_input)
-
-    tabular_features = Flatten()(tabular_input)
-    tabular_features = Dense(32, activation='relu')(tabular_features)
-    tabular_features = BatchNormalization()(tabular_features)
-
-    combined_features = concatenate([front_image_features, back_image_features, tabular_features])
-
-    output_layers = []
-
-    for output in outputs:
-        output_layer = Dense(1, activation='linear', name='output_' + output)(combined_features)
-        output_layers.append(output_layer)
-
-    model = Model(
-        inputs=[front_image_input, back_image_input, tabular_input], 
-        outputs=output_layers
-    )
-
-    model.compile(optimizer=AdamW(learning_rate=.0001, weight_decay=.0001), 
-                  loss=['mse'],
-                  metrics=['mae'])
-    
+def create_model(image_shape, num_tabular_features, outputs):
+    model = MultiInputModel(image_shape, num_tabular_features, outputs)
     return model
-    
-def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, image_shape, num_tabular_features):
-    gpu_id = fold % len(tf.config.experimental.list_physical_devices('GPU'))  
-    with tf.device(f'/GPU:{gpu_id}'):
-        print(f"  Training on fold {fold} on GPU {gpu_id}")
-        
-        # Split the data
-        X_train_front, X_val_front = X_front[train_index], X_front[val_index]
-        X_train_back, X_val_back = X_back[train_index], X_back[val_index]
-        X_train_tabular, X_val_tabular = X_tabular[train_index], X_tabular[val_index]
-        Y_train, Y_val = Y[train_index], Y[val_index]
-        
-        # Create and train the model
-        model = create_model(image_shape, num_tabular_features)
-        model_path = f'./saved/models/model_fold_{fold}.keras'
-        checkpoint = ModelCheckpoint(model_path, 
-                                     monitor='val_loss', 
-                                     save_best_only=True, 
-                                     mode='min', 
-                                     verbose=1)
-        early_stopping = EarlyStopping(monitor='loss', 
-                                       patience=20, 
-                                       mode='min', 
-                                       verbose=1)
-        
-        history = model.fit(
-            [X_train_front, X_train_back, X_train_tabular],
-            {'output_body_fat': Y_train},
-            epochs=500,
-            batch_size=32,
-            verbose=1,
-            callbacks=[checkpoint, early_stopping, MemoryCallback()],
-            validation_data=([X_val_front, X_val_back, X_val_tabular], {'output_body_fat': Y_val})
-        ) 
-        
-        del model
-        tf.keras.backend.clear_session()
-        gc.collect()
+ # Create a DataLoader for given datasets
+def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True):
+    tensor_dataset = TensorDataset(X_front, X_back, X_tabular, Y)
+    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle)
+    return dataloader
 
-        return history
+# Function to train and validate the model for one fold
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, image_shape, num_tabular_features, batch_size=32, num_epochs=500):
+    # Determine the device for training
+    device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
+    print(f"  Training on fold {fold} on {device}")
+    
+    # Split the data into training and validation sets
+    X_train_front, X_val_front = X_front[train_index], X_front[val_index]
+    X_train_back, X_val_back = X_back[train_index], X_back[val_index]
+    X_train_tabular, X_val_tabular = X_tabular[train_index], X_tabular[val_index]
+    Y_train, Y_val = Y[train_index], Y[val_index]
+    
+    # Convert data to PyTorch tensors
+    X_train_front = torch.tensor(X_train_front, dtype=torch.float32).to(device)
+    X_val_front = torch.tensor(X_val_front, dtype=torch.float32).to(device)
+    X_train_back = torch.tensor(X_train_back, dtype=torch.float32).to(device)
+    X_val_back = torch.tensor(X_val_back, dtype=torch.float32).to(device)
+    X_train_tabular = torch.tensor(X_train_tabular, dtype=torch.float32).to(device)
+    X_val_tabular = torch.tensor(X_val_tabular, dtype=torch.float32).to(device)
+    Y_train = torch.tensor(Y_train, dtype=torch.float32).to(device)
+    Y_val = torch.tensor(Y_val, dtype=torch.float32).to(device)
+
+    # Create DataLoaders for training and validation
+    train_loader = create_dataloader(X_train_front, X_train_back, X_train_tabular, Y_train, batch_size)
+    val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, batch_size, shuffle=False)
+
+    # Create the model and move it to the device
+    model = create_model(image_shape, num_tabular_features, outputs=['output_body_fat']).to(device)
+    
+    # Define optimizer and loss function
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.0001)
+    criterion = nn.MSELoss()
+
+    best_val_loss = float('inf')
+    best_model_path = f'./saved/models/model_fold_{fold}.pt'
+    
+    for epoch in range(num_epochs):
+        model.train()
+        train_loss = 0.0
+        for front, back, tabular, target in train_loader:
+            optimizer.zero_grad()
+            outputs = model(front, back, tabular)
+            loss = criterion(outputs[0], target)  # Since it's a list of outputs, take the first one
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item() * front.size(0)
+        
+        train_loss /= len(train_loader.dataset)
+        
+        # Validation phase
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for front, back, tabular, target in val_loader:
+                outputs = model(front, back, tabular)
+                loss = criterion(outputs[0], target)
+                val_loss += loss.item() * front.size(0)
+        
+        val_loss /= len(val_loader.dataset)
+        
+        print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}')
+        
+        # Check for early stopping and save the best model
+        if val_loss < best_val_loss:
+            print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model.")
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), best_model_path)
+        
+        # Early stopping condition
+        if epoch - 20 > 0 and val_loss >= best_val_loss:
+            print("Early stopping due to no improvement in validation loss.")
+            break
+
+    # Clean up
+    del model
+    torch.cuda.empty_cache()
+    gc.collect()
+
+    return best_val_loss
 
 def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y, 
                       image_shape, num_tabular_features, n_splits=5):
@@ -157,59 +192,44 @@ def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y,
     return histories
 
 # Define ensemble prediction function
-def ensemble_predict(ground_truth, X_front, X_back, X_tabular):
+def ensemble_predict(ground_truth, X_front, X_back, X_tabular, image_shape, num_tabular_features, outputs=['output_body_fat']):
     predictions = []
     weight_sum = 0
 
     model_paths = os.listdir('./saved/models/')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Convert data to PyTorch tensors
+    X_front = torch.tensor(X_front, dtype=torch.float32).to(device)
+    X_back = torch.tensor(X_back, dtype=torch.float32).to(device)
+    X_tabular = torch.tensor(X_tabular, dtype=torch.float32).to(device)
+    ground_truth = torch.tensor(ground_truth, dtype=torch.float32).to(device)
+    
     for i, model_path in enumerate(model_paths):
-        model = tf.keras.models.load_model(os.path.join('./saved/models/', model_path))
-        
-        predictions_body_fat = model.predict([X_front, X_back, X_tabular]).flatten()
-        mae = mean_absolute_error(ground_truth, predictions_body_fat)
+        # Load the model
+        model = create_model(image_shape, num_tabular_features, outputs)  # create_model function should be defined similarly as above
+        model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
+        model.to(device)
+        model.eval()
+
+        with torch.no_grad():
+            # Make predictions
+            predictions_body_fat = model(X_front, X_back, X_tabular)[0].flatten()  # Assuming the model returns a list of outputs
+            
+        # Calculate MAE
+        mae = mean_absolute_error(ground_truth.cpu().numpy(), predictions_body_fat.cpu().numpy())
         print(f"  Model {i+1}/{len(model_paths)} MAE: {round(mae, 2)}")
+        
+        # Calculate weight and weighted prediction
         weight = 1 / (mae ** 10)
         weighted_pred = predictions_body_fat * weight
         weight_sum += weight
 
-        predictions.append(weighted_pred)
-        del model
-        tf.keras.backend.clear_session()
+        predictions.append(weighted_pred.cpu().numpy())  # Append numpy array of weighted predictions
     
+    # Calculate weighted average prediction
     weighted_avg_prediction = np.sum(predictions, axis=0) / weight_sum
     return np.round(weighted_avg_prediction, 1)
-
-def print_evaluation(predictions, ground_truth):
-    mae = mean_absolute_error(ground_truth, predictions)
-    print(f"Total MAE: {round(mae, 2)}")
-    print(f"Predictions: {predictions}")
-    print(f"Ground Truth: {ground_truth}")
-    errors = predictions_body_fat - ground_truth
-    plt.figure(figsize=(10, 6))
-    plt.hist(errors, bins=10)
-    plt.title("Distribution of Errors")
-    plt.xlabel("Error")
-    plt.ylabel("Frequency")
-    plt.show()
-
-def plot_histories(histories):
-    plt.figure(figsize=(10, 6))
-    for i, history in enumerate(histories):
-        plt.plot(history.history['loss'], label=f"Model {i} Train")
-    plt.title("Loss")
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(loc='upper right')
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    for i, history in enumerate(histories):
-        plt.plot(history.history['val_loss'], label=f"Model {i} Validation")
-    plt.title("Validation Loss")
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(loc='upper right')
-    plt.show()
 
 # Main execution
 image_shape = (224, 224, 3)
@@ -234,8 +254,6 @@ predictions = {
 ground_truth = {
     'body_fat': Y_test_body_fat
 }
-
-print_evaluation(predictions_body_fat, Y_test_body_fat)
 # plot_histories(histories)
 
 
