@@ -1,7 +1,4 @@
-import tensorflow as tf
+import torch
 
-def print_num_gpus():
-    gpus = tf.config.list_physical_devices('GPU')
-    print(f"Number of GPUs detected: {len(gpus)}")
-
-print_num_gpus()
+print(torch.cuda.is_available())  
+print(torch.cuda.device_count())
