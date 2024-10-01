@@ -173,7 +173,7 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     return best_val_loss
 
 def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y, 
-                      num_tabular_features, n_splits=5):
+                      num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     
@@ -236,7 +236,7 @@ def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_featu
 # Main execution
 num_tabular_features = tabular.shape[1] 
 n_models = 1
-n_splits = 4
+n_splits = 8
 
 # Delete every past file in saved/models
 folder_path = './saved/models/'
