@@ -94,6 +94,9 @@ def process_data(df):
     X_back_images = []
     X_tabular = []
     Y_body_fat = []
+    Y_muscle_mass = []
+    Y_bone_mass = []
+    Y_bone_density = []
 
     # Mean and standard deviation for normalization
     mean = np.array([0.485, 0.456, 0.406])
@@ -119,10 +122,16 @@ def process_data(df):
 
         # Process labels
         Y_body_fat.append(float(row['Training Body Fat %']))
+        Y_bone_mass.append(float(row['Training Bone Mass']))
+        Y_muscle_mass.append(float(row['Training Muscle Mass']))
+        Y_bone_density.append(float(row['Training Bone Density']))
 
     X_front_images = np.array(X_front_images)
     X_back_images = np.array(X_back_images)
     X_tabular = np.array(X_tabular)
     Y_body_fat = np.array(Y_body_fat)
+    Y_muscle_mass = np.array(Y_muscle_mass)
+    Y_bone_mass = np.array(Y_bone_mass)
+    Y_bone_density = np.array(Y_bone_density)
 
-    return X_front_images, X_back_images, X_tabular, Y_body_fat
+    return X_front_images, X_back_images, X_tabular, Y_body_fat, Y_muscle_mass, Y_bone_mass, Y_bone_density
