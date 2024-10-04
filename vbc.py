@@ -14,6 +14,9 @@ from torchvision import models
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, TensorDataset
 
+# Define the metrics as a global constant
+OUTPUT_METRICS = ['body_fat', 'muscle_mass', 'bone_mass', 'bone_density']
+
 # Settings
 pd.set_option('display.max_rows', None)
 np.set_printoptions(threshold=100)
@@ -25,8 +28,6 @@ train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 
 front_images, back_images, tabular, body_fat, muscle_mass, bone_mass, bone_density = process_data(train_df)
 X_test_front_images, X_test_back_images, X_test_tabular, Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density = process_data(test_df)
-
-# Define the custom PyTorch model
 class MultiInputModel(nn.Module):
     def __init__(self, num_tabular_features, outputs):
         super(MultiInputModel, self).__init__()
@@ -38,25 +39,24 @@ class MultiInputModel(nn.Module):
         self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         # Batch normalization layer for image features
-        self.image_bn = nn.BatchNorm1d(1280)  # 1280 is the number of features from MobileNetV2
+        self.image_bn = nn.BatchNorm1d(1280, momentum=0.01, eps=1e-3)  # Modified momentum and eps
 
         # Dense layers for tabular data
         self.tabular_dense1 = nn.Linear(num_tabular_features, 32)
-        self.tabular_bn = nn.BatchNorm1d(32)
+        self.tabular_bn = nn.BatchNorm1d(32, momentum=0.01, eps=1e-3)  # Modified momentum and eps
 
         # Combined features dimension
         combined_features_dim = 1280 * 2 + 32
 
         # Define output layers for multiple predictions
-        self.output_layers = nn.ModuleList([
-            nn.Linear(combined_features_dim, 1) for _ in outputs
-        ])
+        self.output_layers = nn.ModuleList([nn.Linear(combined_features_dim, 1) for _ in outputs])
 
     def process_image(self, x):
         x = self.feature_extractor(x)
         x = self.global_avg_pool(x)
         x = x.view(x.size(0), -1)  # Flatten
-        x = self.image_bn(x)
+        if x.size(0) > 1:  # Only apply batch norm if batch size > 1
+            x = self.image_bn(x)
         return x
 
     def forward(self, front_image_input, back_image_input, tabular_input):
@@ -66,7 +66,8 @@ class MultiInputModel(nn.Module):
         
         # Process tabular data
         tabular_features = F.relu(self.tabular_dense1(tabular_input))
-        tabular_features = self.tabular_bn(tabular_features)
+        if tabular_input.size(0) > 1:  # Only apply batch norm if batch size > 1
+            tabular_features = self.tabular_bn(tabular_features)
         
         # Combine all features
         combined_features = torch.cat([front_image_features, back_image_features, tabular_features], dim=1)
@@ -77,17 +78,16 @@ class MultiInputModel(nn.Module):
         return outputs
 
 # Define model creation function
-def create_model(num_tabular_features, outputs):
-    model = MultiInputModel(num_tabular_features, outputs)
+def create_model(num_tabular_features):
+    model = MultiInputModel(num_tabular_features, outputs=OUTPUT_METRICS)
     return model
 
 # Create a DataLoader for given datasets
-def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True):
+def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True, drop_last=False):
     tensor_dataset = TensorDataset(X_front, X_back, X_tabular, *Y)
-    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle)
+    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-# Function to train and validate the model for one fold
 def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=500):
     device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
     print(f"  Training on fold {fold} on {device}")
@@ -116,11 +116,20 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     Y_val = [y.to(device) for y in Y_val]
 
     # Create DataLoaders for training and validation
-    train_loader = create_dataloader(X_train_front, X_train_back, X_train_tabular, Y_train, batch_size)
-    val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, batch_size, shuffle=False)
+    train_loader = create_dataloader(X_train_front, X_train_back, X_train_tabular, Y_train, batch_size, drop_last=True)
+    val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, batch_size, shuffle=False, drop_last=True)
+
+    # Check if we have enough samples for validation
+    if len(val_loader) == 0:
+        print(f"Warning: Validation set is too small for the current batch size ({batch_size}). Adjusting batch size.")
+        new_batch_size = len(X_val_front) // 2  # Use half of the validation set size as the new batch size
+        val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, new_batch_size, shuffle=False, drop_last=True)
+        if len(val_loader) == 0:
+            print(f"Error: Validation set is too small even with adjusted batch size. Cannot proceed with training.")
+            return None
 
     # Create the model and move it to the device
-    model = create_model(num_tabular_features, outputs=['body_fat', 'muscle_mass', 'bone_mass', 'bone_density']).to(device)
+    model = create_model(num_tabular_features).to(device)
     
     # Define optimizer and loss function
     optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=0.001)
@@ -134,26 +143,42 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
+        num_train_samples = 0
         for front, back, tabular, *targets in train_loader:
+            if front.size(0) == 1:  # Skip batches with only one sample
+                continue
             optimizer.zero_grad()
             outputs = model(front, back, tabular)
             loss = sum(criterion(outputs[i], targets[i]) for i in range(len(outputs)))
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * front.size(0)
+            num_train_samples += front.size(0)
         
-        train_loss /= len(train_loader.dataset)
+        if num_train_samples == 0:
+            print(f"Warning: No valid training batches in epoch {epoch + 1}. Skipping this epoch.")
+            continue
+        
+        train_loss /= num_train_samples
         
         # Validation phase
         model.eval()
         val_loss = 0.0
+        num_val_samples = 0
         with torch.no_grad():
             for front, back, tabular, *targets in val_loader:
+                if front.size(0) == 1:  # Skip batches with only one sample
+                    continue
                 outputs = model(front, back, tabular)
                 loss = sum(criterion(outputs[i], targets[i]) for i in range(len(outputs)))
                 val_loss += loss.item() * front.size(0)
+                num_val_samples += front.size(0)
         
-        val_loss /= len(val_loader.dataset)
+        if num_val_samples == 0:
+            print(f"Warning: No valid validation batches in epoch {epoch + 1}. Skipping validation for this epoch.")
+            continue
+        
+        val_loss /= num_val_samples
         
         print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}')
         
@@ -175,21 +200,16 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
 
     return best_val_loss
 
-def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y, 
+def train_cv(X_front, X_back, X_tabular, Y, 
                       num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
         futures = []
-        
-        for i in range(n_models):
-            print(f"Training model {i+1}/{n_models}")
 
-            for fold, (train_index, val_index) in enumerate(kf.split(X_tabular)):
-                # Submit the training of each fold to the thread pool
-                futures.append(executor.submit(train_fold, fold, train_index, val_index,
-                                               X_front, X_back, X_tabular, Y, num_tabular_features))
+        for fold, (train_index, val_index) in enumerate(kf.split(X_tabular)):
+            futures.append(executor.submit(train_fold, fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features))
 
         for future in concurrent.futures.as_completed(futures):
             histories.append(future.result())
@@ -197,7 +217,7 @@ def train_ensemble_cv(n_models, X_front, X_back, X_tabular, Y,
     return histories
 
 # Define ensemble prediction function
-def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_features, outputs=['body_fat', 'muscle_mass', 'bone_mass', 'bone_density']):
+def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_features):
     predictions = []
     weight_sum = 0
 
@@ -212,7 +232,7 @@ def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_featu
     
     for i, model_path in enumerate(model_paths):
         # Load the model
-        model = create_model(num_tabular_features, outputs)
+        model = create_model(num_tabular_features)
         model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
         model.to(device)
         model.eval()
@@ -222,7 +242,7 @@ def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_featu
             output_preds = model(X_front, X_back, X_tabular)
         
         # Calculate MAE for each target and combine them
-        mae = sum(mean_absolute_error(ground_truth[i].cpu().numpy(), output_preds[i].cpu().numpy()) for i in range(len(outputs)))
+        mae = sum(mean_absolute_error(ground_truth[i].cpu().numpy(), output_preds[i].cpu().numpy()) for i in range(len(OUTPUT_METRICS)))
         print(f"  Model {i+1}/{len(model_paths)} MAE: {round(mae, 2)}")
         
         # Calculate weight and weighted prediction
@@ -233,12 +253,11 @@ def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_featu
         predictions.append([wp.cpu().numpy() for wp in weighted_preds])
 
     # Calculate weighted average prediction
-    weighted_avg_predictions = [np.sum([p[i] for p in predictions], axis=0) / weight_sum for i in range(len(outputs))]
+    weighted_avg_predictions = [np.sum([p[i] for p in predictions], axis=0) / weight_sum for i in range(len(OUTPUT_METRICS))]
     return [np.round(wp, 1) for wp in weighted_avg_predictions]
 
 # Main execution
 num_tabular_features = tabular.shape[1] 
-n_models = 1
 n_splits = 4
 
 # Delete every past file in saved/models
@@ -249,32 +268,21 @@ for filename in os.listdir(folder_path):
 
 Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
-histories = train_ensemble_cv(n_models, front_images, back_images, tabular, Y, num_tabular_features, n_splits)
+histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
 
 predictions_body_fat, predictions_muscle_mass, predictions_bone_mass, predictions_bone_density = ensemble_predict(
     [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density], 
     X_test_front_images, 
     X_test_back_images, 
     X_test_tabular, 
-    num_tabular_features=num_tabular_features,  
-    outputs=['body_fat', 'muscle_mass', 'bone_mass', 'bone_density'] 
+    num_tabular_features=num_tabular_features
 )
 
-predictions = {
-    'body_fat': predictions_body_fat,
-    'muscle_mass': predictions_muscle_mass,
-    'bone_mass': predictions_bone_mass,
-    'bone_density': predictions_bone_density
-}
+predictions = dict(zip(OUTPUT_METRICS, [predictions_body_fat, predictions_muscle_mass, predictions_bone_mass, predictions_bone_density]))
 
-ground_truth = {
-    'body_fat': Y_test_body_fat,
-    'muscle_mass': Y_test_muscle_mass,
-    'bone_mass': Y_test_bone_mass,
-    'bone_density': Y_test_bone_density
-}
+ground_truth = dict(zip(OUTPUT_METRICS, [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]))
 
-for key in predictions.keys():
+for key in OUTPUT_METRICS:
     mae = mean_absolute_error(ground_truth[key], predictions[key])
     print(f"Final MAE on test set for {key}: {mae}")
 
