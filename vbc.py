@@ -88,7 +88,7 @@ def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True, d
     dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=500):
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=1000):
     device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
     print(f"  Training on fold {fold} on {device}")
     
@@ -140,6 +140,10 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     patience = 50
     best_model_path = f'./saved/models/model_fold_{fold}.pt'
     
+    # Lists to store training and validation losses
+    train_losses = []
+    val_losses = []
+
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
@@ -160,6 +164,7 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
             continue
         
         train_loss /= num_train_samples
+        train_losses.append(train_loss)
         
         # Validation phase
         model.eval()
@@ -179,6 +184,7 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
             continue
         
         val_loss /= num_val_samples
+        val_losses.append(val_loss)
         
         print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}')
         
@@ -198,10 +204,9 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     torch.cuda.empty_cache()
     gc.collect()
 
-    return best_val_loss
+    return train_losses, val_losses
 
-def train_cv(X_front, X_back, X_tabular, Y, 
-                      num_tabular_features, n_splits):
+def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     
@@ -216,51 +221,10 @@ def train_cv(X_front, X_back, X_tabular, Y,
 
     return histories
 
-# Define ensemble prediction function
-def ensemble_predict(ground_truth, X_front, X_back, X_tabular, num_tabular_features):
-    predictions = []
-    weight_sum = 0
-
-    model_paths = os.listdir('./saved/models/')
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Convert data to PyTorch tensors
-    X_front = torch.tensor(X_front, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-    X_back = torch.tensor(X_back, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-    X_tabular = torch.tensor(X_tabular, dtype=torch.float32).to(device)
-    ground_truth = [torch.tensor(gt, dtype=torch.float32).to(device) for gt in ground_truth]
-    
-    for i, model_path in enumerate(model_paths):
-        # Load the model
-        model = create_model(num_tabular_features)
-        model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
-        model.to(device)
-        model.eval()
-
-        with torch.no_grad():
-            # Make predictions
-            output_preds = model(X_front, X_back, X_tabular)
-        
-        # Calculate MAE for each target and combine them
-        mae = sum(mean_absolute_error(ground_truth[i].cpu().numpy(), output_preds[i].cpu().numpy()) for i in range(len(OUTPUT_METRICS)))
-        print(f"  Model {i+1}/{len(model_paths)} MAE: {round(mae, 2)}")
-        
-        # Calculate weight and weighted prediction
-        weight = 1 / (mae ** 2 + 1e-8)
-        weighted_preds = [output_preds[i] * weight for i in range(len(output_preds))]
-        weight_sum += weight
-
-        predictions.append([wp.cpu().numpy() for wp in weighted_preds])
-
-    # Calculate weighted average prediction
-    weighted_avg_predictions = [np.sum([p[i] for p in predictions], axis=0) / weight_sum for i in range(len(OUTPUT_METRICS))]
-    return [np.round(wp, 1) for wp in weighted_avg_predictions]
-
 # Main execution
 num_tabular_features = tabular.shape[1] 
-n_splits = 4
+n_splits = 8
 
-# Delete every past file in saved/models
 folder_path = './saved/models/'
 for filename in os.listdir(folder_path):
     file_path = os.path.join(folder_path, filename)
@@ -270,34 +234,49 @@ Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
 histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
 
-predictions_body_fat, predictions_muscle_mass, predictions_bone_mass, predictions_bone_density = ensemble_predict(
-    [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density], 
-    X_test_front_images, 
-    X_test_back_images, 
-    X_test_tabular, 
-    num_tabular_features=num_tabular_features
-)
+# Predictions
+model_paths = os.listdir('./saved/models/')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-predictions = dict(zip(OUTPUT_METRICS, [predictions_body_fat, predictions_muscle_mass, predictions_bone_mass, predictions_bone_density]))
+X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+X_tabular = torch.tensor(X_test_tabular, dtype=torch.float32).to(device)
+ground_truth = [torch.tensor(gt, dtype=torch.float32).to(device) for gt in [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]]
 
-ground_truth = dict(zip(OUTPUT_METRICS, [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]))
+preds = []
 
-for key in OUTPUT_METRICS:
-    mae = mean_absolute_error(ground_truth[key], predictions[key])
-    print(f"Final MAE on test set for {key}: {mae}")
+for i, model_path in enumerate(model_paths):
+    model = create_model(num_tabular_features)
+    model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
+    model.to(device)
+    model.eval()
 
-def calculate_variance(ground_truth, predictions):
-    variances = {}
-    
-    for metric in ground_truth:
-        # Reshape predictions to match ground truth dimensions
-        pred_values = predictions[metric].reshape(-1)
-        true_values = ground_truth[metric]
-        
-        variance = np.sum(np.abs(true_values - pred_values) / true_values) / len(true_values)
-        variances[metric] = variance
-    
-    return variances
+    with torch.no_grad():
+        preds.append([t.squeeze() for t in model(X_front, X_back, X_tabular)])
 
-variances = calculate_variance(ground_truth, predictions)
-print(variances)
+weights = torch.tensor([1] * 8, device='cuda:0')  
+weighted_preds = []
+
+for i in range(len(preds[0])):
+    weighted_sum = sum(w * lst[i] for w, lst in zip(weights, preds))
+    weighted_avg_pred = weighted_sum / weights.sum()
+    weighted_preds.append(weighted_avg_pred)
+
+for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
+    mae = torch.mean(torch.abs(pred - act))
+    variance = torch.sum(torch.abs(act - pred) / act) / len(act)
+    print(f"{metric}, MAE: {round(mae.item(), 3)} Variance: {round(variance.item(), 3)}")
+
+# Plot Loss
+plt.figure(figsize=(10, 6))
+
+for i, (train_loss, val_loss) in enumerate(histories):
+    plt.plot(train_loss, label=f'Train Loss Fold {i+1}')
+    plt.plot(val_loss, label=f'Val Loss Fold {i+1}')
+
+plt.title('Training and Validation Loss Across Folds')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.grid(True)
+plt.show()
