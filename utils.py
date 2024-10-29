@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import urllib.request
-import pyheif
+
+from PIL import Image
+import pillow_heif
 from ultralytics import YOLO
 import torchvision.transforms as transforms
 
@@ -13,7 +15,7 @@ def get_image(link):
 
     try:
         response = urllib.request.urlopen(parsed_link)
-        heif_file = pyheif.read(response)
+        heif_file = pillow_heif.open_heif(response)
 
         image = Image.frombytes(
             heif_file.mode, 

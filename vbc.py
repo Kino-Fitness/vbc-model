@@ -222,6 +222,7 @@ def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
     return histories
 
 # Main execution
+X_tabular = np.array(df['Waist'] / df['Hips']).reshape(-1, 1)
 num_tabular_features = tabular.shape[1] 
 n_splits = 8
 
@@ -232,7 +233,11 @@ for filename in os.listdir(folder_path):
 
 Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
-histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
+
+
+histories = train_cv(front_images, back_images, X_tabular, Y, num_tabular_features, n_splits)
+
+
 
 # Predictions
 model_paths = os.listdir('./saved/models/')
