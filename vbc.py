@@ -223,7 +223,7 @@ def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
 
 # Main execution
 X_tabular = np.array(df['Waist'] / df['Hips']).reshape(-1, 1)
-num_tabular_features = tabular.shape[1] 
+num_tabular_features = X_tabular.shape[1] 
 n_splits = 2
 
 folder_path = './saved/models/'
