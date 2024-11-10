@@ -88,7 +88,7 @@ def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True, d
     dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=1000):
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=8):
     device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
     print(f"  Training on fold {fold} on {device}")
     
@@ -209,8 +209,8 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
 def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=torch.cuda.device_count()) as executor:
+    max_workers = max(torch.cuda.device_count(), 1)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
 
         for fold, (train_index, val_index) in enumerate(kf.split(X_tabular)):
@@ -224,7 +224,7 @@ def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
 # Main execution
 X_tabular = np.array(df['Waist'] / df['Hips']).reshape(-1, 1)
 num_tabular_features = tabular.shape[1] 
-n_splits = 8
+n_splits = 2
 
 folder_path = './saved/models/'
 for filename in os.listdir(folder_path):

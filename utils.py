@@ -2,11 +2,12 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import urllib.request
-
-from PIL import Image
-import pillow_heif
+from pillow_heif import register_heif_opener
 from ultralytics import YOLO
 import torchvision.transforms as transforms
+
+# Register the HEIF opener to handle HEIC/HEIF files with Pillow
+register_heif_opener()
 
 def get_image(link):
     link_parts = link.split("/")
@@ -15,17 +16,11 @@ def get_image(link):
 
     try:
         response = urllib.request.urlopen(parsed_link)
-        heif_file = pillow_heif.open_heif(response)
-
-        image = Image.frombytes(
-            heif_file.mode, 
-            heif_file.size, 
-            heif_file.data,
-            "raw",
-            heif_file.mode,
-            heif_file.stride,
-        )
+        
+        # Load image directly as HEIF and convert to RGB
+        image = Image.open(response)
         image = image.convert('RGB')
+        
         model = YOLO("yolov8n.pt")
         results = model(image, classes=0)
         boxes = results[0].boxes
