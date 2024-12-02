@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torchvision import models
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, TensorDataset
+from scipy import stats
 
 # Define the metrics as a global constant
 OUTPUT_METRICS = ['body_fat', 'muscle_mass', 'bone_mass', 'bone_density']
@@ -50,7 +51,8 @@ class MultiInputModel(nn.Module):
 
         # Define output layers for multiple predictions
         self.output_layers = nn.ModuleList([nn.Linear(combined_features_dim, 1) for _ in outputs])
-
+    
+    
     def process_image(self, x):
         x = self.feature_extractor(x)
         x = self.global_avg_pool(x)
@@ -76,7 +78,34 @@ class MultiInputModel(nn.Module):
         outputs = [output_layer(combined_features) for output_layer in self.output_layers]
         
         return outputs
+def calculate_confidence_intervals(predictions, ground_truth, confidence_level=0.95):
+        if torch.is_tensor(predictions):
+            predictions = predictions.cpu().numpy()
+        if torch.is_tensor(ground_truth):
+            ground_truth = ground_truth.cpu().numpy()
+    
+        errors = np.abs(predictions - ground_truth)
+    
+        X_bar = np.mean(errors)               
+        S = np.std(errors, ddof=1)            
+        n = len(errors)                        
 
+        z_value = stats.norm.ppf((1 + confidence_level) / 2)
+    
+        margin_of_error = z_value * (S / np.sqrt(n))
+    
+        lower_bound = X_bar - margin_of_error
+        upper_bound = X_bar + margin_of_error
+    
+        return {
+            'mean': X_bar,
+            'lower_bound': lower_bound,
+            'upper_bound': upper_bound,
+            'std_dev': S,
+            'sample_size': n,
+            'z_value': z_value,
+            'margin_of_error': margin_of_error
+        }
 # Define model creation function
 def create_model(num_tabular_features):
     model = MultiInputModel(num_tabular_features, outputs=OUTPUT_METRICS)
@@ -266,10 +295,11 @@ for i in range(len(preds[0])):
     weighted_sum = sum(w * lst[i] for w, lst in zip(weights, preds))
     weighted_avg_pred = weighted_sum / weights.sum()
     weighted_preds.append(weighted_avg_pred)
-
+metrics_data = []
 for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
     mae = torch.mean(torch.abs(pred - act))
     variance = torch.sum(torch.abs(act - pred) / act) / len(act)
+    ci = calculate_confidence_intervals(pred.cpu(), act.cpu())
     print(f"{metric}, MAE: {round(mae.item(), 3)} Variance: {round(variance.item(), 3)}")
 
 # Plot Loss
@@ -284,4 +314,28 @@ plt.xlabel('Epochs')
 plt.ylabel('Loss')
 plt.legend()
 plt.grid(True)
+plt.show()
+
+# Plot confidence intervals
+plt.figure(figsize=(12, 6))
+
+# Plot error bars for confidence intervals
+plt.errorbar(
+    x=[i for i in range(len(metrics_data))],
+    y=[m['ci']['mean'] for m in metrics_data],
+    yerr=[[m['ci']['mean'] - m['ci']['lower_bound'] for m in metrics_data],
+          [m['ci']['upper_bound'] - m['ci']['mean'] for m in metrics_data]],
+    fmt='o',
+    capsize=5,
+    capthick=2,
+    elinewidth=2,
+    markersize=8,
+    label='95% Confidence Interval'
+)
+
+plt.title('Prediction Errors with 95% Confidence Intervals')
+plt.xticks(range(len(OUTPUT_METRICS)), OUTPUT_METRICS, rotation=45)
+plt.ylabel('Mean Absolute Error')
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
 plt.show()
