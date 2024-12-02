@@ -5,8 +5,8 @@ import urllib.request
 from pillow_heif import register_heif_opener
 from ultralytics import YOLO
 import torchvision.transforms as transforms
+import os
 
-# Register the HEIF opener to handle HEIC/HEIF files with Pillow
 register_heif_opener()
 
 def get_image(link):
@@ -16,8 +16,6 @@ def get_image(link):
 
     try:
         response = urllib.request.urlopen(parsed_link)
-        
-        # Load image directly as HEIF and convert to RGB
         image = Image.open(response)
         image = image.convert('RGB')
         
@@ -27,8 +25,7 @@ def get_image(link):
         coords = boxes.xyxy.tolist()[0]
         image = image.crop(coords)
         image = image.resize((224, 224))
-        image_array = np.array(image)
-        return image_array
+        return image  # Return PIL Image
 
     except Exception as e:
         print(f"Error: {e}, link: {link}")
@@ -39,7 +36,7 @@ def apply_random_augmentation(image):
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     ])
     augmented_image = transform(image)
-    return augmented_image
+    return np.array(augmented_image)  # Convert to numpy after augmentation
 
 def augment_data(df, num_augmentations):
     original_length = len(df)
@@ -50,8 +47,10 @@ def augment_data(df, num_augmentations):
     for i in range(num_augmentations):
         row_index = i % original_length
         row = df.iloc[row_index].copy()
-        row['Front Image'] = apply_random_augmentation(row['Front Image'])
-        row['Back Image'] = apply_random_augmentation(row['Back Image'])
+        front_pil = Image.fromarray(row['Front Image'].astype('uint8'))
+        back_pil = Image.fromarray(row['Back Image'].astype('uint8'))
+        row['Front Image'] = apply_random_augmentation(front_pil)
+        row['Back Image'] = apply_random_augmentation(back_pil)
         augmented_rows.append(row)
     
     augmented_df = pd.DataFrame(augmented_rows)
@@ -65,8 +64,8 @@ def process_df(df):
         if front_image is None or back_image is None:
             df.drop(index, inplace=True)
             continue
-        df.at[index, 'Front Image'] = front_image
-        df.at[index, 'Back Image'] = back_image
+        df.at[index, 'Front Image'] = np.array(front_image)
+        df.at[index, 'Back Image'] = np.array(back_image)
         df.at[index, 'Training Body Fat %'] = float(row['Training Body Fat %'].strip('%'))
     return df
 
@@ -95,34 +94,30 @@ def process_data(df):
     Y_bone_mass = []
     Y_bone_density = []
 
-    # Mean and standard deviation for normalization
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
 
     for index, row in df.iterrows():
-        # Normalize front image
         front_image = np.array(row['Front Image']).astype(np.float32) / 255.0
         front_image = (front_image - mean) / std
         X_front_images.append(front_image)
 
-        # Normalize back image
         back_image = np.array(row['Back Image']).astype(np.float32) / 255.0
         back_image = (back_image - mean) / std
         X_back_images.append(back_image)
 
-        # Process tabular data
         X_tabular.append([
             float(row['Height']), 
             float(row['Weight']), 
-            float(row['Waist']) / float(row['Hips'])
+            float(row['Waist']) / float(row['Hip (bone)'])
         ])
 
-        # Process labels
         Y_body_fat.append(float(row['Training Body Fat %']))
         Y_bone_mass.append(float(row['Training Bone Mass']))
         Y_muscle_mass.append(float(row['Training Muscle Mass']))
         Y_bone_density.append(float(row['Training Bone Density']))
 
+    
     X_front_images = np.array(X_front_images)
     X_back_images = np.array(X_back_images)
     X_tabular = np.array(X_tabular)
