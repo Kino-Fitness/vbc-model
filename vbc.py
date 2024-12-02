@@ -340,7 +340,6 @@ plt.errorbar(
     markersize=8
 )
 
-# Add some padding to y-axis limits to make error bars visible
 plt.margins(y=0.2)
 
 plt.title('Prediction Errors with 95% Confidence Intervals')

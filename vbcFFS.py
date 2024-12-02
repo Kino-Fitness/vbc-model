@@ -254,17 +254,16 @@ def process_features(df, feature_combination):
     features = []
     
     if 'waist/hips' in feature_combination:
-        features.append(df['Waist'] / df['Hips'])
+        features.append(df['Waist'] / df['Hip (bone)'])
     if 'waist & hips' in feature_combination:
-        features.extend([df['Waist'], df['Hips']])
+        features.extend([df['Waist'], df['Hip (bone)']])
     if 'height' in feature_combination:
         features.append(df['Height'])
     if 'weight' in feature_combination:
         features.append(df['Weight'])
     
     return np.column_stack(features)
-
-# Define feature combinations
+# Main execution
 FEATURE_COMBINATIONS = [
     ['waist/hips'],
     ['waist & hips'],
@@ -274,66 +273,70 @@ FEATURE_COMBINATIONS = [
     ['height', 'weight', 'waist & hips'],
     ['height', 'weight', 'waist/hips']
 ]
-
-def train_feature_combination(feature_combo, train_df, test_df):
-    """Train model with specific feature combination"""
-    # Process features
-    X_tabular = process_features(train_df, feature_combo)
-    X_test_tabular = process_features(test_df, feature_combo)
-    num_tabular_features = X_tabular.shape[1]
-    
-    # Process images and targets
-    front_images, back_images, _, body_fat, muscle_mass, bone_mass, bone_density = process_data(train_df)
-    X_test_front_images, X_test_back_images, _, Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density = process_data(test_df)
-    
-    Y = [body_fat, muscle_mass, bone_mass, bone_density]
-    
-    # Train model
-    histories = train_cv(front_images, back_images, X_tabular, Y, num_tabular_features, n_splits=4)
-    
-    # Predictions
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-    X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-    X_tab = torch.tensor(X_test_tabular, dtype=torch.float32).to(device)
-    ground_truth = [
-        torch.tensor(gt, dtype=torch.float32).to(device) 
-        for gt in [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]
-    ]
-    
-    # Calculate metrics and confidence intervals
-    results = {}
-    for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
-        mae = torch.mean(torch.abs(pred - act)).item()
-        ci = calculate_confidence_intervals(pred.cpu(), act.cpu())
-        results[metric] = {
-            'mae': mae,
-            'confidence_interval': ci
-        }
-    
-    return results
-
-# Main execution
-results_by_features = {}
+n_splits = 2
+results_all = {}
 for feature_combo in FEATURE_COMBINATIONS:
     print(f"\nTraining with features: {feature_combo}")
-    results = train_feature_combination(feature_combo, train_df, test_df)
-    results_by_features[str(feature_combo)] = results
+    
+    tabular = process_features(train_df, feature_combo)
+    X_test_tabular = process_features(test_df, feature_combo)
+    num_tabular_features = tabular.shape[1]
+    
+    folder_path = './saved/models/'
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        os.remove(file_path)
 
-# Save results
-import json
-with open('feature_selection_results.json', 'w') as f:
-    json.dump(results_by_features, f, indent=4)
+    Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
-# Visualization
+    histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
+
+    # Predictions
+    model_paths = os.listdir('./saved/models/')
+    device = torch.device('cpu')
+
+    X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+    X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+    X_tabular = torch.tensor(X_test_tabular, dtype=torch.float32).to(device)
+    ground_truth = [torch.tensor(gt, dtype=torch.float32).to(device) for gt in [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]]
+
+    preds = []
+    for i, model_path in enumerate(model_paths):
+        model = create_model(num_tabular_features)
+        model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
+        model.to(device)
+        model.eval()
+
+        with torch.no_grad():
+            preds.append([t.squeeze() for t in model(X_front, X_back, X_tabular)])
+
+    weights = torch.tensor([1] * 8)  
+    weighted_preds = []
+
+    for i in range(len(preds[0])):
+        weighted_sum = sum(w * lst[i] for w, lst in zip(weights, preds))
+        weighted_avg_pred = weighted_sum / weights.sum()
+        weighted_preds.append(weighted_avg_pred)
+
+    metrics_data = []
+    feature_results = {}
+    for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
+        mae = torch.mean(torch.abs(pred - act))
+        variance = torch.sum(torch.abs(act - pred) / act) / len(act)
+        ci = calculate_confidence_intervals(pred.cpu(), act.cpu())
+        print(f"{metric} for {feature_combo}, MAE: {round(mae.item(), 3)} Variance: {round(variance.item(), 3)}")
+        feature_results[metric] = {'mae': mae.item(), 'variance': variance.item(), 'ci': ci}
+    
+    results_all[str(feature_combo)] = feature_results
+
+# After feature combination loop, plot overall results
 plt.figure(figsize=(15, 10))
-feature_names = [str(combo) for combo in FEATURE_COMBINATIONS]
-metrics = OUTPUT_METRICS
+feature_names = list(results_all.keys())
 
-for idx, metric in enumerate(metrics):
+for idx, metric in enumerate(OUTPUT_METRICS):
     plt.subplot(2, 2, idx+1)
-    mae_values = [results_by_features[feat][metric]['mae'] for feat in feature_names]
-    ci_values = [results_by_features[feat][metric]['confidence_interval'] for feat in feature_names]
+    mae_values = [results_all[feat][metric]['mae'] for feat in feature_names]
+    ci_values = [results_all[feat][metric]['ci'] for feat in feature_names]
     
     plt.errorbar(
         range(len(feature_names)),
