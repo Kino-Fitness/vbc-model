@@ -117,8 +117,8 @@ def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True, d
     dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=8):
-    device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=1000):
+    device ='cpu'
     print(f"  Training on fold {fold} on {device}")
     
     # Split the data into training and validation sets
@@ -330,27 +330,44 @@ for feature_combo in FEATURE_COMBINATIONS:
     results_all[str(feature_combo)] = feature_results
 
 # After feature combination loop, plot overall results
-plt.figure(figsize=(15, 10))
-feature_names = list(results_all.keys())
 
+feature_names = list(results_all.keys())
+output_data = []
 for idx, metric in enumerate(OUTPUT_METRICS):
-    plt.subplot(2, 2, idx+1)
+    metric_data = {
+        "metric" : metric,
+        "features" : []
+    }
+
     mae_values = [results_all[feat][metric]['mae'] for feat in feature_names]
     ci_values = [results_all[feat][metric]['ci'] for feat in feature_names]
+    for feat_idx, feature in enumerate(feature_names):
+        feature_data = {
+            "feature": feature,
+            "mae": mae_values[feat_idx],
+            "confidence_interval": {
+                "mean": ci_values[feat_idx]['mean'],
+                "lower_bound": ci_values[feat_idx]['lower_bound'],
+                "upper_bound": ci_values[feat_idx]['upper_bound'],
+                "error_margins": {
+                    "lower": ci_values[feat_idx]['mean'] - ci_values[feat_idx]['lower_bound'],
+                    "upper": ci_values[feat_idx]['upper_bound'] - ci_values[feat_idx]['mean']
+                }
+            }
+        }
+        metric_data["features"].append(feature_data)
     
-    plt.errorbar(
-        range(len(feature_names)),
-        mae_values,
-        yerr=[[v['mean'] - v['lower_bound'] for v in ci_values],
-              [v['upper_bound'] - v['mean'] for v in ci_values]],
-        fmt='o',
-        capsize=5
-    )
-    
-    plt.title(f'{metric} by Feature Combination')
-    plt.xticks(range(len(feature_names)), feature_names, rotation=45)
-    plt.ylabel('MAE')
-    plt.grid(True)
-
-plt.tight_layout()
-plt.show()
+    output_data.append(metric_data)
+print(output_data)
+import json
+def convert_numpy_types(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+with open('metrics_data.json', 'w') as f:
+    json.dump(output_data, f, indent=2, default=convert_numpy_types)
+   

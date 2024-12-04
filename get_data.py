@@ -12,7 +12,7 @@ df = pd.read_csv(sheet_url)
 
 df = df[['Height', 'Weight', 'Front Image', 'Back Image', 'Training Body Fat %', 'Training Muscle Mass', 'Training Bone Mass', 'Training Bone Density', 'Waist', 'Hip (bone)', 'Gender', 'Demographic']]
 
-df = df[:57]
+df = df[:91]
 df.head()
 df = process_df(df)
 df = distribute_body_fat(df)

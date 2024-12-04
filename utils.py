@@ -25,6 +25,7 @@ def get_image(link):
         coords = boxes.xyxy.tolist()[0]
         image = image.crop(coords)
         image = image.resize((224, 224))
+        print(parsed_link)
         return image  # Return PIL Image
 
     except Exception as e:
