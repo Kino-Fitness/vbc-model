@@ -1,0 +1,414 @@
+[
+  {
+    "metric": "body_fat",
+    "features": [
+      {
+        "feature": "['waist/hips']",
+        "mae": 6.017385005950928,
+        "variance": 0.3435605466365814,
+        "confidence_interval": {
+          "mean": 6.0173845291137695,
+          "lower_bound": 4.967011941480319,
+          "upper_bound": 7.06775711674722,
+          "error_margins": {
+            "lower": 1.0503725876334506,
+            "upper": 1.0503725876334506
+          }
+        }
+      },
+      {
+        "feature": "['waist & hips']",
+        "mae": 5.536389350891113,
+        "variance": 0.312063992023468,
+        "confidence_interval": {
+          "mean": 5.536389350891113,
+          "lower_bound": 4.472237511018208,
+          "upper_bound": 6.600541190764019,
+          "error_margins": {
+            "lower": 1.0641518398729053,
+            "upper": 1.0641518398729053
+          }
+        }
+      },
+      {
+        "feature": "['height']",
+        "mae": 5.558450222015381,
+        "variance": 0.3143482208251953,
+        "confidence_interval": {
+          "mean": 5.558450222015381,
+          "lower_bound": 4.482832207473031,
+          "upper_bound": 6.634068236557731,
+          "error_margins": {
+            "lower": 1.07561801454235,
+            "upper": 1.07561801454235
+          }
+        }
+      },
+      {
+        "feature": "['weight']",
+        "mae": 5.630990982055664,
+        "variance": 0.31887736916542053,
+        "confidence_interval": {
+          "mean": 5.630991458892822,
+          "lower_bound": 4.561667310547271,
+          "upper_bound": 6.700315607238373,
+          "error_margins": {
+            "lower": 1.069324148345551,
+            "upper": 1.069324148345551
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight']",
+        "mae": 5.807321071624756,
+        "variance": 0.32756802439689636,
+        "confidence_interval": {
+          "mean": 5.807321071624756,
+          "lower_bound": 4.711772106806397,
+          "upper_bound": 6.902870036443114,
+          "error_margins": {
+            "lower": 1.0955489648183585,
+            "upper": 1.0955489648183585
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist & hips']",
+        "mae": 5.859301567077637,
+        "variance": 0.3349413573741913,
+        "confidence_interval": {
+          "mean": 5.859301567077637,
+          "lower_bound": 4.8110893905287,
+          "upper_bound": 6.907513743626573,
+          "error_margins": {
+            "lower": 1.0482121765489367,
+            "upper": 1.0482121765489367
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist/hips']",
+        "mae": 5.899623394012451,
+        "variance": 0.3342762589454651,
+        "confidence_interval": {
+          "mean": 5.899623394012451,
+          "lower_bound": 4.809357250571462,
+          "upper_bound": 6.989889537453441,
+          "error_margins": {
+            "lower": 1.0902661434409895,
+            "upper": 1.0902661434409895
+          }
+        }
+      }
+    ]
+  },
+  {
+    "metric": "muscle_mass",
+    "features": [
+      {
+        "feature": "['waist/hips']",
+        "mae": 57.069496154785156,
+        "variance": 0.3750997483730316,
+        "confidence_interval": {
+          "mean": 57.06949234008789,
+          "lower_bound": 51.2394296509805,
+          "upper_bound": 62.899555029195284,
+          "error_margins": {
+            "lower": 5.830062689107393,
+            "upper": 5.830062689107393
+          }
+        }
+      },
+      {
+        "feature": "['waist & hips']",
+        "mae": 57.371307373046875,
+        "variance": 0.3779601454734802,
+        "confidence_interval": {
+          "mean": 57.371307373046875,
+          "lower_bound": 51.814704418914744,
+          "upper_bound": 62.927910327179006,
+          "error_margins": {
+            "lower": 5.556602954132131,
+            "upper": 5.556602954132131
+          }
+        }
+      },
+      {
+        "feature": "['height']",
+        "mae": 56.98575210571289,
+        "variance": 0.37503674626350403,
+        "confidence_interval": {
+          "mean": 56.98575210571289,
+          "lower_bound": 51.382875739477235,
+          "upper_bound": 62.588628471948546,
+          "error_margins": {
+            "lower": 5.602876366235655,
+            "upper": 5.602876366235655
+          }
+        }
+      },
+      {
+        "feature": "['weight']",
+        "mae": 56.58428192138672,
+        "variance": 0.3726802468299866,
+        "confidence_interval": {
+          "mean": 56.584285736083984,
+          "lower_bound": 51.07551539570461,
+          "upper_bound": 62.093056076463355,
+          "error_margins": {
+            "lower": 5.508770340379371,
+            "upper": 5.508770340379371
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight']",
+        "mae": 56.76227951049805,
+        "variance": 0.3739915192127228,
+        "confidence_interval": {
+          "mean": 56.76227951049805,
+          "lower_bound": 51.29479082891586,
+          "upper_bound": 62.229768192080236,
+          "error_margins": {
+            "lower": 5.467488681582189,
+            "upper": 5.467488681582189
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist & hips']",
+        "mae": 56.501991271972656,
+        "variance": 0.3716648817062378,
+        "confidence_interval": {
+          "mean": 56.50198745727539,
+          "lower_bound": 50.831154389882336,
+          "upper_bound": 62.172820524668445,
+          "error_margins": {
+            "lower": 5.670833067393055,
+            "upper": 5.670833067393055
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist/hips']",
+        "mae": 56.89913558959961,
+        "variance": 0.3744042217731476,
+        "confidence_interval": {
+          "mean": 56.89913558959961,
+          "lower_bound": 51.27858805763284,
+          "upper_bound": 62.51968312156638,
+          "error_margins": {
+            "lower": 5.620547531966771,
+            "upper": 5.620547531966771
+          }
+        }
+      }
+    ]
+  },
+  {
+    "metric": "bone_mass",
+    "features": [
+      {
+        "feature": "['waist/hips']",
+        "mae": 2.838024616241455,
+        "variance": 0.36259162425994873,
+        "confidence_interval": {
+          "mean": 2.838024616241455,
+          "lower_bound": 2.547281652695007,
+          "upper_bound": 3.1287675797879033,
+          "error_margins": {
+            "lower": 0.29074296354644824,
+            "upper": 0.29074296354644824
+          }
+        }
+      },
+      {
+        "feature": "['waist & hips']",
+        "mae": 2.8016345500946045,
+        "variance": 0.3584389388561249,
+        "confidence_interval": {
+          "mean": 2.8016343116760254,
+          "lower_bound": 2.522408952571761,
+          "upper_bound": 3.0808596707802898,
+          "error_margins": {
+            "lower": 0.2792253591042644,
+            "upper": 0.2792253591042644
+          }
+        }
+      },
+      {
+        "feature": "['height']",
+        "mae": 2.746393918991089,
+        "variance": 0.3508290648460388,
+        "confidence_interval": {
+          "mean": 2.746394395828247,
+          "lower_bound": 2.4673530579404237,
+          "upper_bound": 3.0254357337160704,
+          "error_margins": {
+            "lower": 0.27904133788782337,
+            "upper": 0.27904133788782337
+          }
+        }
+      },
+      {
+        "feature": "['weight']",
+        "mae": 2.692614793777466,
+        "variance": 0.3463851809501648,
+        "confidence_interval": {
+          "mean": 2.692615032196045,
+          "lower_bound": 2.461740791916016,
+          "upper_bound": 2.9234892724760737,
+          "error_margins": {
+            "lower": 0.2308742402800288,
+            "upper": 0.2308742402800288
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight']",
+        "mae": 2.7504236698150635,
+        "variance": 0.35437145829200745,
+        "confidence_interval": {
+          "mean": 2.7504236698150635,
+          "lower_bound": 2.528360469560078,
+          "upper_bound": 2.972486870070049,
+          "error_margins": {
+            "lower": 0.22206320025498538,
+            "upper": 0.22206320025498538
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist & hips']",
+        "mae": 2.7405447959899902,
+        "variance": 0.35281747579574585,
+        "confidence_interval": {
+          "mean": 2.7405447959899902,
+          "lower_bound": 2.5091166889131724,
+          "upper_bound": 2.971972903066808,
+          "error_margins": {
+            "lower": 0.23142810707681782,
+            "upper": 0.23142810707681782
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist/hips']",
+        "mae": 2.7088520526885986,
+        "variance": 0.3487551510334015,
+        "confidence_interval": {
+          "mean": 2.7088520526885986,
+          "lower_bound": 2.480194982568334,
+          "upper_bound": 2.9375091228088634,
+          "error_margins": {
+            "lower": 0.22865707012026482,
+            "upper": 0.22865707012026482
+          }
+        }
+      }
+    ]
+  },
+  {
+    "metric": "bone_density",
+    "features": [
+      {
+        "feature": "['waist/hips']",
+        "mae": 0.5256821513175964,
+        "variance": 0.36144760251045227,
+        "confidence_interval": {
+          "mean": 0.5256822109222412,
+          "lower_bound": 0.4900739402524104,
+          "upper_bound": 0.5612904815920721,
+          "error_margins": {
+            "lower": 0.0356082706698308,
+            "upper": 0.035608270669830855
+          }
+        }
+      },
+      {
+        "feature": "['waist & hips']",
+        "mae": 0.5245842933654785,
+        "variance": 0.3621787428855896,
+        "confidence_interval": {
+          "mean": 0.5245842933654785,
+          "lower_bound": 0.4957295086772837,
+          "upper_bound": 0.5534390780536733,
+          "error_margins": {
+            "lower": 0.0288547846881948,
+            "upper": 0.0288547846881948
+          }
+        }
+      },
+      {
+        "feature": "['height']",
+        "mae": 0.5486373901367188,
+        "variance": 0.37743255496025085,
+        "confidence_interval": {
+          "mean": 0.5486374497413635,
+          "lower_bound": 0.5123284258786264,
+          "upper_bound": 0.5849464736041007,
+          "error_margins": {
+            "lower": 0.036309023862737155,
+            "upper": 0.036309023862737155
+          }
+        }
+      },
+      {
+        "feature": "['weight']",
+        "mae": 0.5040623545646667,
+        "variance": 0.3481025695800781,
+        "confidence_interval": {
+          "mean": 0.5040624141693115,
+          "lower_bound": 0.47600265973843403,
+          "upper_bound": 0.532122168600189,
+          "error_margins": {
+            "lower": 0.028059754430877493,
+            "upper": 0.028059754430877493
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight']",
+        "mae": 0.519836962223053,
+        "variance": 0.35951125621795654,
+        "confidence_interval": {
+          "mean": 0.5198369026184082,
+          "lower_bound": 0.49403264023970045,
+          "upper_bound": 0.5456411649971159,
+          "error_margins": {
+            "lower": 0.025804262378707754,
+            "upper": 0.0258042623787077
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist & hips']",
+        "mae": 0.5376757383346558,
+        "variance": 0.37243685126304626,
+        "confidence_interval": {
+          "mean": 0.5376757383346558,
+          "lower_bound": 0.5137633758433581,
+          "upper_bound": 0.5615881008259535,
+          "error_margins": {
+            "lower": 0.02391236249129769,
+            "upper": 0.02391236249129769
+          }
+        }
+      },
+      {
+        "feature": "['height', 'weight', 'waist/hips']",
+        "mae": 0.5154240727424622,
+        "variance": 0.35606294870376587,
+        "confidence_interval": {
+          "mean": 0.5154240727424622,
+          "lower_bound": 0.48853894366742673,
+          "upper_bound": 0.5423092018174976,
+          "error_margins": {
+            "lower": 0.02688512907503543,
+            "upper": 0.026885129075035485
+          }
+        }
+      }
+    ]
+  }
+]

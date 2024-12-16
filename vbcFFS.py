@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import KFold, train_test_split
-from utils import process_data, augment_data
+from utilsOG import process_data, augment_data
 import os
 import gc
 import concurrent.futures
@@ -23,7 +23,7 @@ pd.set_option('display.max_rows', None)
 np.set_printoptions(threshold=100)
 
 # Load data
-df = pd.read_pickle('saved/dataframes/df.pkl')
+df = pd.read_pickle('saved/dataframes/df1.pkl')
 df = df[df['Gender'] == 'Male']
 train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
 
@@ -117,18 +117,16 @@ def create_dataloader(X_front, X_back, X_tabular, Y, batch_size, shuffle=True, d
     dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
     return dataloader
 
-def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=8):
+def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_tabular_features, batch_size=32, num_epochs=1000):
     device = torch.device(f'cuda:{fold % torch.cuda.device_count()}' if torch.cuda.is_available() else 'cpu')
-    print(f"  Training on fold {fold} on {device}")
+    print(f"Training on fold {fold} on {device}")
     
-    # Split the data into training and validation sets
     X_train_front, X_val_front = X_front[train_index], X_front[val_index]
     X_train_back, X_val_back = X_back[train_index], X_back[val_index]
     X_train_tabular, X_val_tabular = X_tabular[train_index], X_tabular[val_index]
     Y_train = [y[train_index] for y in Y]
     Y_val = [y[val_index] for y in Y]
     
-    # Convert data to PyTorch tensors
     X_train_front = torch.tensor(X_train_front, dtype=torch.float32).permute(0, 3, 1, 2)
     X_val_front = torch.tensor(X_val_front, dtype=torch.float32).permute(0, 3, 1, 2)
     X_train_back = torch.tensor(X_train_back, dtype=torch.float32).permute(0, 3, 1, 2)
@@ -138,30 +136,25 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     Y_train = [torch.tensor(y, dtype=torch.float32).unsqueeze(1) for y in Y_train]
     Y_val = [torch.tensor(y, dtype=torch.float32).unsqueeze(1) for y in Y_val]
 
-    # Move tensors to device
     X_train_front, X_train_back, X_train_tabular = X_train_front.to(device), X_train_back.to(device), X_train_tabular.to(device)
     Y_train = [y.to(device) for y in Y_train]
     X_val_front, X_val_back, X_val_tabular = X_val_front.to(device), X_val_back.to(device), X_val_tabular.to(device)
     Y_val = [y.to(device) for y in Y_val]
 
-    # Create DataLoaders for training and validation
     train_loader = create_dataloader(X_train_front, X_train_back, X_train_tabular, Y_train, batch_size, drop_last=True)
     val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, batch_size, shuffle=False, drop_last=True)
-
-    # Check if we have enough samples for validation
+    
     if len(val_loader) == 0:
-        print(f"Warning: Validation set is too small for the current batch size ({batch_size}). Adjusting batch size.")
-        new_batch_size = len(X_val_front) // 2  # Use half of the validation set size as the new batch size
+        print(f"Warning: Validation set too small for batch size {batch_size}")
+        new_batch_size = len(X_val_front) // 2
         val_loader = create_dataloader(X_val_front, X_val_back, X_val_tabular, Y_val, new_batch_size, shuffle=False, drop_last=True)
         if len(val_loader) == 0:
-            print(f"Error: Validation set is too small even with adjusted batch size. Cannot proceed with training.")
+            print("Error: Validation set too small even with adjusted batch size")
             return None
 
-    # Create the model and move it to the device
     model = create_model(num_tabular_features).to(device)
-    
-    # Define optimizer and loss function
     optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=0.001)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
     criterion = nn.MSELoss()
 
     best_val_loss = float('inf')
@@ -169,7 +162,6 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     patience = 50
     best_model_path = f'./saved/models/model_fold_{fold}.pt'
     
-    # Lists to store training and validation losses
     train_losses = []
     val_losses = []
 
@@ -177,31 +169,35 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
         model.train()
         train_loss = 0.0
         num_train_samples = 0
+        
         for front, back, tabular, *targets in train_loader:
-            if front.size(0) == 1:  # Skip batches with only one sample
+            if front.size(0) == 1:
                 continue
+                
             optimizer.zero_grad()
             outputs = model(front, back, tabular)
             loss = sum(criterion(outputs[i], targets[i]) for i in range(len(outputs)))
             loss.backward()
             optimizer.step()
+            scheduler.step()
+            
             train_loss += loss.item() * front.size(0)
             num_train_samples += front.size(0)
         
         if num_train_samples == 0:
-            print(f"Warning: No valid training batches in epoch {epoch + 1}. Skipping this epoch.")
+            print(f"Warning: No valid training batches in epoch {epoch + 1}")
             continue
         
         train_loss /= num_train_samples
         train_losses.append(train_loss)
         
-        # Validation phase
         model.eval()
         val_loss = 0.0
         num_val_samples = 0
+        
         with torch.no_grad():
             for front, back, tabular, *targets in val_loader:
-                if front.size(0) == 1:  # Skip batches with only one sample
+                if front.size(0) == 1:
                     continue
                 outputs = model(front, back, tabular)
                 loss = sum(criterion(outputs[i], targets[i]) for i in range(len(outputs)))
@@ -209,32 +205,28 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
                 num_val_samples += front.size(0)
         
         if num_val_samples == 0:
-            print(f"Warning: No valid validation batches in epoch {epoch + 1}. Skipping validation for this epoch.")
+            print(f"Warning: No valid validation batches in epoch {epoch + 1}")
             continue
         
         val_loss /= num_val_samples
         val_losses.append(val_loss)
         
-        print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}')
+        print(f'Epoch {epoch + 1}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - LR: {scheduler.get_last_lr()[0]:.6f}')
         
-        # Check for early stopping and save the best model
         if val_loss < best_val_loss:
-            print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model.")
+            print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
             best_val_loss = val_loss
             best_epoch = epoch
             torch.save(model.state_dict(), best_model_path)
-        
         elif epoch - best_epoch >= patience:
-            print("Early stopping due to no improvement in validation loss.")
+            print("Early stopping triggered")
             break
 
-    # Clean up
     del model
     torch.cuda.empty_cache()
     gc.collect()
 
     return train_losses, val_losses
-
 def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -273,7 +265,7 @@ FEATURE_COMBINATIONS = [
     ['height', 'weight', 'waist & hips'],
     ['height', 'weight', 'waist/hips']
 ]
-n_splits = 2
+n_splits = 5
 results_all = {}
 for feature_combo in FEATURE_COMBINATIONS:
     print(f"\nTraining with features: {feature_combo}")
@@ -290,10 +282,11 @@ for feature_combo in FEATURE_COMBINATIONS:
     Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
     histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
-
+    print(f"Contents of saved/models/: {os.listdir('./saved/models/')}")
     # Predictions
     model_paths = os.listdir('./saved/models/')
-    device = torch.device('cpu')
+    print(f"Found model paths: {model_paths}")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
     X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
@@ -309,8 +302,8 @@ for feature_combo in FEATURE_COMBINATIONS:
 
         with torch.no_grad():
             preds.append([t.squeeze() for t in model(X_front, X_back, X_tabular)])
-
-    weights = torch.tensor([1] * 8)  
+    print(f"Number of predictions: {len(preds)}")
+    weights = torch.tensor([1] * 8, device='cuda:0')  
     weighted_preds = []
 
     for i in range(len(preds[0])):
@@ -330,27 +323,47 @@ for feature_combo in FEATURE_COMBINATIONS:
     results_all[str(feature_combo)] = feature_results
 
 # After feature combination loop, plot overall results
-plt.figure(figsize=(15, 10))
-feature_names = list(results_all.keys())
 
+feature_names = list(results_all.keys())
+output_data = []
 for idx, metric in enumerate(OUTPUT_METRICS):
-    plt.subplot(2, 2, idx+1)
+    metric_data = {
+        "metric" : metric,
+        "features" : []
+    }
+
     mae_values = [results_all[feat][metric]['mae'] for feat in feature_names]
     ci_values = [results_all[feat][metric]['ci'] for feat in feature_names]
+    variance_values = [results_all[feat][metric]['variance'] for feat in feature_names]
+    for feat_idx, feature in enumerate(feature_names):
+        feature_data = {
+            "feature": feature,
+            "mae": mae_values[feat_idx],
+            "variance" : variance_values[feat_idx],
+            "confidence_interval": {
+                
+                "mean": ci_values[feat_idx]['mean'],
+                "lower_bound": ci_values[feat_idx]['lower_bound'],
+                "upper_bound": ci_values[feat_idx]['upper_bound'],
+                "error_margins": {
+                    "lower": ci_values[feat_idx]['mean'] - ci_values[feat_idx]['lower_bound'],
+                    "upper": ci_values[feat_idx]['upper_bound'] - ci_values[feat_idx]['mean']
+                }
+            }
+        }
+        metric_data["features"].append(feature_data)
     
-    plt.errorbar(
-        range(len(feature_names)),
-        mae_values,
-        yerr=[[v['mean'] - v['lower_bound'] for v in ci_values],
-              [v['upper_bound'] - v['mean'] for v in ci_values]],
-        fmt='o',
-        capsize=5
-    )
-    
-    plt.title(f'{metric} by Feature Combination')
-    plt.xticks(range(len(feature_names)), feature_names, rotation=45)
-    plt.ylabel('MAE')
-    plt.grid(True)
-
-plt.tight_layout()
-plt.show()
+    output_data.append(metric_data)
+print(output_data)
+import json
+def convert_numpy_types(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+with open('metrics_dataFFS.json', 'w') as f:
+    json.dump(output_data, f, indent=2, default=convert_numpy_types)
+   
