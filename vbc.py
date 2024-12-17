@@ -221,7 +221,7 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
         elif epoch - best_epoch >= patience:
             print("Early stopping triggered")
             break
-
+    
     del model
     torch.cuda.empty_cache()
     gc.collect()
