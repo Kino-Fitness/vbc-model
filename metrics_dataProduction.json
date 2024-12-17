@@ -1,0 +1,58 @@
+[
+  {
+    "metric": "body_fat",
+    "mae": 4.178284645080566,
+    "variance": 0.2528585195541382,
+    "confidence_interval": {
+      "mean": 4.178284645080566,
+      "lower_bound": 3.3397419770233854,
+      "upper_bound": 5.016827313137747,
+      "error_margins": {
+        "lower": 0.838542668057181,
+        "upper": 0.8385426680571806
+      }
+    }
+  },
+  {
+    "metric": "muscle_mass",
+    "mae": 12.348855018615723,
+    "variance": 0.08520684391260147,
+    "confidence_interval": {
+      "mean": 12.34885311126709,
+      "lower_bound": 8.885271430988281,
+      "upper_bound": 15.812434791545899,
+      "error_margins": {
+        "lower": 3.463581680278809,
+        "upper": 3.463581680278809
+      }
+    }
+  },
+  {
+    "metric": "bone_mass",
+    "mae": 0.6282575130462646,
+    "variance": 0.08805043995380402,
+    "confidence_interval": {
+      "mean": 0.6282575130462646,
+      "lower_bound": 0.49272525082956997,
+      "upper_bound": 0.7637897752629593,
+      "error_margins": {
+        "lower": 0.13553226221669468,
+        "upper": 0.13553226221669468
+      }
+    }
+  },
+  {
+    "metric": "bone_density",
+    "mae": 0.10655250400304794,
+    "variance": 0.07763195782899857,
+    "confidence_interval": {
+      "mean": 0.10655251145362854,
+      "lower_bound": 0.08378986798600895,
+      "upper_bound": 0.12931515492124812,
+      "error_margins": {
+        "lower": 0.022762643467619595,
+        "upper": 0.02276264346761958
+      }
+    }
+  }
+]
