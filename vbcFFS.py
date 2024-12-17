@@ -227,7 +227,6 @@ def train_fold(fold, train_index, val_index, X_front, X_back, X_tabular, Y, num_
     gc.collect()
 
     return train_losses, val_losses
-
 def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
     histories = []
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -242,76 +241,118 @@ def train_cv(X_front, X_back, X_tabular, Y, num_tabular_features, n_splits):
             histories.append(future.result())
 
     return histories
-
+def process_features(df, feature_combination):
+    """Process different feature combinations"""
+    features = []
+    
+    if 'waist/hips' in feature_combination:
+        features.append(df['Waist'] / df['Hip (bone)'])
+    if 'waist & hips' in feature_combination:
+        features.extend([df['Waist'], df['Hip (bone)']])
+    if 'height' in feature_combination:
+        features.append(df['Height'])
+    if 'weight' in feature_combination:
+        features.append(df['Weight'])
+    
+    return np.column_stack(features)
 # Main execution
-num_tabular_features = tabular.shape[1]
+FEATURE_COMBINATIONS = [
+    ['waist/hips'],
+    ['waist & hips'],
+    ['height'],
+    ['weight'],
+    ['height', 'weight'],
+    ['height', 'weight', 'waist & hips'],
+    ['height', 'weight', 'waist/hips']
+]
 n_splits = 5
+results_all = {}
+for feature_combo in FEATURE_COMBINATIONS:
+    print(f"\nTraining with features: {feature_combo}")
+    
+    tabular = process_features(train_df, feature_combo)
+    X_test_tabular = process_features(test_df, feature_combo)
+    num_tabular_features = tabular.shape[1]
+    
+    folder_path = './saved/models/'
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        os.remove(file_path)
 
-folder_path = './saved/models/'
-for filename in os.listdir(folder_path):
-    file_path = os.path.join(folder_path, filename)
-    os.remove(file_path)
+    Y = [body_fat, muscle_mass, bone_mass, bone_density]
 
-Y = [body_fat, muscle_mass, bone_mass, bone_density]
+    histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
+    print(f"Contents of saved/models/: {os.listdir('./saved/models/')}")
+    # Predictions
+    model_paths = os.listdir('./saved/models/')
+    print(f"Found model paths: {model_paths}")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+    X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
+    X_tabular = torch.tensor(X_test_tabular, dtype=torch.float32).to(device)
+    ground_truth = [torch.tensor(gt, dtype=torch.float32).to(device) for gt in [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]]
 
-histories = train_cv(front_images, back_images, tabular, Y, num_tabular_features, n_splits)
+    preds = []
+    for i, model_path in enumerate(model_paths):
+        model = create_model(num_tabular_features)
+        model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
+        model.to(device)
+        model.eval()
 
+        with torch.no_grad():
+            preds.append([t.squeeze() for t in model(X_front, X_back, X_tabular)])
+    print(f"Number of predictions: {len(preds)}")
+    weights = torch.tensor([1] * 8, device='cuda:0')  
+    weighted_preds = []
 
+    for i in range(len(preds[0])):
+        weighted_sum = sum(w * lst[i] for w, lst in zip(weights, preds))
+        weighted_avg_pred = weighted_sum / weights.sum()
+        weighted_preds.append(weighted_avg_pred)
 
-# Predictions
-model_paths = os.listdir('./saved/models/')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    metrics_data = []
+    feature_results = {}
+    for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
+        mae = torch.mean(torch.abs(pred - act))
+        variance = torch.sum(torch.abs(act - pred) / act) / len(act)
+        ci = calculate_confidence_intervals(pred.cpu(), act.cpu())
+        print(f"{metric} for {feature_combo}, MAE: {round(mae.item(), 3)} Variance: {round(variance.item(), 3)}")
+        feature_results[metric] = {'mae': mae.item(), 'variance': variance.item(), 'ci': ci}
+    
+    results_all[str(feature_combo)] = feature_results
 
-X_front = torch.tensor(X_test_front_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-X_back = torch.tensor(X_test_back_images, dtype=torch.float32).permute(0, 3, 1, 2).to(device)
-X_tabular = torch.tensor(X_test_tabular, dtype=torch.float32).to(device)
-ground_truth = [torch.tensor(gt, dtype=torch.float32).to(device) for gt in [Y_test_body_fat, Y_test_muscle_mass, Y_test_bone_mass, Y_test_bone_density]]
+# After feature combination loop, plot overall results
 
-preds = []
-
-for i, model_path in enumerate(model_paths):
-    model = create_model(num_tabular_features)
-    model.load_state_dict(torch.load(os.path.join('./saved/models/', model_path)))
-    model.to(device)
-    model.eval()
-
-    with torch.no_grad():
-        preds.append([t.squeeze() for t in model(X_front, X_back, X_tabular)])
-
-weights = torch.tensor([1] * 8, device='cuda:0') 
-weighted_preds = []
-
-for i in range(len(preds[0])):
-    weighted_sum = sum(w * lst[i] for w, lst in zip(weights, preds))
-    weighted_avg_pred = weighted_sum / weights.sum()
-    weighted_preds.append(weighted_avg_pred)
-metrics_data = []
-feature_results = {}
-for pred, act, metric in zip(weighted_preds, ground_truth, OUTPUT_METRICS):
-    mae = torch.mean(torch.abs(pred - act))
-    variance = torch.sum(torch.abs(act - pred) / act) / len(act)
-    ci = calculate_confidence_intervals(pred.cpu(), act.cpu())
-    print(f"{metric}, MAE: {round(mae.item(), 3)} Variance: {round(variance.item(), 3)}")
-    feature_results[metric] = {'mae': mae.item(), 'variance': variance.item(), 'ci': ci}
-
+feature_names = list(results_all.keys())
 output_data = []
-output_data = []
-for metric in OUTPUT_METRICS:
+for idx, metric in enumerate(OUTPUT_METRICS):
     metric_data = {
-        "metric": metric,
-        "mae": feature_results[metric]['mae'],
-        "variance": feature_results[metric]['variance'],
-        "confidence_interval": {
-            "mean": feature_results[metric]['ci']['mean'],
-            "lower_bound": feature_results[metric]['ci']['lower_bound'],
-            "upper_bound": feature_results[metric]['ci']['upper_bound'],
-            "error_margins": {
-                "lower": feature_results[metric]['ci']['mean'] - feature_results[metric]['ci']['lower_bound'],
-                "upper": feature_results[metric]['ci']['upper_bound'] - feature_results[metric]['ci']['mean']
+        "metric" : metric,
+        "features" : []
+    }
+
+    mae_values = [results_all[feat][metric]['mae'] for feat in feature_names]
+    ci_values = [results_all[feat][metric]['ci'] for feat in feature_names]
+    variance_values = [results_all[feat][metric]['variance'] for feat in feature_names]
+    for feat_idx, feature in enumerate(feature_names):
+        feature_data = {
+            "feature": feature,
+            "mae": mae_values[feat_idx],
+            "variance" : variance_values[feat_idx],
+            "confidence_interval": {
+                
+                "mean": ci_values[feat_idx]['mean'],
+                "lower_bound": ci_values[feat_idx]['lower_bound'],
+                "upper_bound": ci_values[feat_idx]['upper_bound'],
+                "error_margins": {
+                    "lower": ci_values[feat_idx]['mean'] - ci_values[feat_idx]['lower_bound'],
+                    "upper": ci_values[feat_idx]['upper_bound'] - ci_values[feat_idx]['mean']
+                }
             }
         }
-    }
+        metric_data["features"].append(feature_data)
+    
     output_data.append(metric_data)
 print(output_data)
 import json
@@ -323,51 +364,6 @@ def convert_numpy_types(obj):
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
     return obj
-with open('metrics_data.json', 'w') as f:
+with open('metrics_dataFFS.json', 'w') as f:
     json.dump(output_data, f, indent=2, default=convert_numpy_types)
    
-
-
-# Plot Loss
-'''plt.figure(figsize=(10, 6))
-
-for i, (train_loss, val_loss) in enumerate(histories):
-    plt.plot(train_loss, label=f'Train Loss Fold {i+1}')
-    plt.plot(val_loss, label=f'Val Loss Fold {i+1}')
-
-plt.title('Training and Validation Loss Across Folds')
-plt.xlabel('Epochs')
-plt.ylabel('Loss')
-plt.legend()
-plt.grid(True)
-plt.show()
-
-for m in metrics_data:
-    print(f"Metric: {m['metric']}")
-    print(f"Mean: {m['ci']['mean']}")
-    print(f"Lower: {m['ci']['lower_bound']}")
-    print(f"Upper: {m['ci']['upper_bound']}")
-# Plot confidence intervals
-plt.figure(figsize=(12, 6))
-
-plt.errorbar(
-    x=range(len(metrics_data)),
-    y=[float(m['ci']['mean']) for m in metrics_data],
-    yerr=[[float(m['ci']['mean'] - m['ci']['lower_bound']) for m in metrics_data],
-          [float(m['ci']['upper_bound'] - m['ci']['mean']) for m in metrics_data]],
-    fmt='o',
-    capsize=5,
-    capthick=2,
-    elinewidth=2,
-    markersize=8
-)
-
-plt.margins(y=0.2)
-
-plt.title('Prediction Errors with 95% Confidence Intervals')
-plt.xticks(range(len(OUTPUT_METRICS)), OUTPUT_METRICS, rotation=45)
-plt.ylabel('Mean Absolute Error')
-plt.grid(True, linestyle='--', alpha=0.7)
-plt.tight_layout()
-plt.show()
-'''

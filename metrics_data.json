@@ -1,0 +1,232 @@
+{
+  "summary_metrics": [
+    {
+      "metric": "body_fat",
+      "mae": 1.762289047241211,
+      "variance": 0.10928365588188171,
+      "confidence_interval": {
+        "mean": 1.7622889280319214,
+        "lower_bound": 1.0697105646195104,
+        "upper_bound": 2.4548672914443324,
+        "error_margins": {
+          "lower": 0.692578363412411,
+          "upper": 0.692578363412411
+        }
+      }
+    },
+    {
+      "metric": "muscle_mass",
+      "mae": 8.761027336120605,
+      "variance": 0.05879013612866402,
+      "confidence_interval": {
+        "mean": 8.761026382446289,
+        "lower_bound": 4.697104803741413,
+        "upper_bound": 12.824947961151164,
+        "error_margins": {
+          "lower": 4.063921578704876,
+          "upper": 4.063921578704875
+        }
+      }
+    },
+    {
+      "metric": "bone_mass",
+      "mae": 0.45134714245796204,
+      "variance": 0.062405601143836975,
+      "confidence_interval": {
+        "mean": 0.45134714245796204,
+        "lower_bound": 0.3501524530541129,
+        "upper_bound": 0.5525418318618112,
+        "error_margins": {
+          "lower": 0.10119468940384913,
+          "upper": 0.10119468940384913
+        }
+      }
+    },
+    {
+      "metric": "bone_density",
+      "mae": 0.06902465969324112,
+      "variance": 0.049030814319849014,
+      "confidence_interval": {
+        "mean": 0.06902465969324112,
+        "lower_bound": 0.05045090470624271,
+        "upper_bound": 0.08759841468023953,
+        "error_margins": {
+          "lower": 0.01857375498699841,
+          "upper": 0.01857375498699841
+        }
+      }
+    }
+  ],
+  "individual_predictions": [
+    {
+      "subject_id": 155,
+      "estimated_body_fat": 22.34739112854004,
+      "actual_body_fat": 23.2
+    },
+    {
+      "subject_id": 30,
+      "estimated_body_fat": 20.52480125427246,
+      "actual_body_fat": 20.4
+    },
+    {
+      "subject_id": 130,
+      "estimated_body_fat": 11.496438980102539,
+      "actual_body_fat": 10.4
+    },
+    {
+      "subject_id": 29,
+      "estimated_body_fat": 18.220380783081055,
+      "actual_body_fat": 28.5
+    },
+    {
+      "subject_id": 163,
+      "estimated_body_fat": 22.861112594604492,
+      "actual_body_fat": 23.2
+    },
+    {
+      "subject_id": 182,
+      "estimated_body_fat": 19.05722427368164,
+      "actual_body_fat": 20.9
+    },
+    {
+      "subject_id": 185,
+      "estimated_body_fat": 16.504743576049805,
+      "actual_body_fat": 17.1
+    },
+    {
+      "subject_id": 53,
+      "estimated_body_fat": 17.9775390625,
+      "actual_body_fat": 20.7
+    },
+    {
+      "subject_id": 116,
+      "estimated_body_fat": 27.454265594482422,
+      "actual_body_fat": 27.9
+    },
+    {
+      "subject_id": 62,
+      "estimated_body_fat": 22.036828994750977,
+      "actual_body_fat": 23.7
+    },
+    {
+      "subject_id": 15,
+      "estimated_body_fat": 16.63216781616211,
+      "actual_body_fat": 17.1
+    },
+    {
+      "subject_id": 177,
+      "estimated_body_fat": 22.218902587890625,
+      "actual_body_fat": 21.7
+    },
+    {
+      "subject_id": 150,
+      "estimated_body_fat": 16.75722885131836,
+      "actual_body_fat": 13.6
+    },
+    {
+      "subject_id": 46,
+      "estimated_body_fat": 17.701051712036133,
+      "actual_body_fat": 14.9
+    },
+    {
+      "subject_id": 73,
+      "estimated_body_fat": 16.650218963623047,
+      "actual_body_fat": 13.6
+    },
+    {
+      "subject_id": 96,
+      "estimated_body_fat": 10.081729888916016,
+      "actual_body_fat": 9.1
+    },
+    {
+      "subject_id": 24,
+      "estimated_body_fat": 14.05822467803955,
+      "actual_body_fat": 13.4
+    },
+    {
+      "subject_id": 120,
+      "estimated_body_fat": 11.84713077545166,
+      "actual_body_fat": 11.0
+    },
+    {
+      "subject_id": 81,
+      "estimated_body_fat": 20.060314178466797,
+      "actual_body_fat": 16.9
+    },
+    {
+      "subject_id": 119,
+      "estimated_body_fat": 11.923687934875488,
+      "actual_body_fat": 10.8
+    },
+    {
+      "subject_id": 19,
+      "estimated_body_fat": 10.236188888549805,
+      "actual_body_fat": 9.7
+    },
+    {
+      "subject_id": 16,
+      "estimated_body_fat": 16.797208786010742,
+      "actual_body_fat": 16.3
+    },
+    {
+      "subject_id": 31,
+      "estimated_body_fat": 16.361894607543945,
+      "actual_body_fat": 17.5
+    },
+    {
+      "subject_id": 18,
+      "estimated_body_fat": 15.777297973632812,
+      "actual_body_fat": 14.1
+    },
+    {
+      "subject_id": 12,
+      "estimated_body_fat": 15.554888725280762,
+      "actual_body_fat": 14.1
+    },
+    {
+      "subject_id": 9,
+      "estimated_body_fat": 16.985904693603516,
+      "actual_body_fat": 17.2
+    },
+    {
+      "subject_id": 93,
+      "estimated_body_fat": 10.621217727661133,
+      "actual_body_fat": 9.6
+    },
+    {
+      "subject_id": 109,
+      "estimated_body_fat": 26.548358917236328,
+      "actual_body_fat": 27.1
+    },
+    {
+      "subject_id": 82,
+      "estimated_body_fat": 17.34750747680664,
+      "actual_body_fat": 15.3
+    },
+    {
+      "subject_id": 57,
+      "estimated_body_fat": 20.663021087646484,
+      "actual_body_fat": 14.6
+    },
+    {
+      "subject_id": 43,
+      "estimated_body_fat": 20.17038345336914,
+      "actual_body_fat": 14.6
+    },
+    {
+      "subject_id": 58,
+      "estimated_body_fat": 17.042695999145508,
+      "actual_body_fat": 15.8
+    },
+    {
+      "subject_id": 173,
+      "estimated_body_fat": 18.490921020507812,
+      "actual_body_fat": 18.4
+    },
+    {
+      "subject_id": 122,
+      "estimated_body_fat": 11.484573364257812,
+      "actual_body_fat": 10.4
+    }
+  ]
+}

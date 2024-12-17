@@ -124,8 +124,6 @@ def process_data(df):
     Y_bone_mass = []
     Y_bone_density = []
 
-    X_tabularBF =[]
-
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
 
@@ -142,11 +140,6 @@ def process_data(df):
         back_image = np.array(row['Back Image']).astype(np.float32) / 255.0
         back_image = (back_image - mean) / std
         X_back_images.append(back_image)
-
-        X_tabularBF.append([
-            float(row['Height']), 
-            float(row['Weight'])
-        ])
 
         # Process tabular data
         waist = float(row['Waist'])
@@ -172,4 +165,4 @@ def process_data(df):
     Y_bone_mass = np.array(Y_bone_mass)
     Y_bone_density = np.array(Y_bone_density)
 
-    return X_front_images, X_back_images,X_tabularBF, X_tabular, Y_body_fat, Y_muscle_mass, Y_bone_mass, Y_bone_density
+    return X_front_images, X_back_images, X_tabular, Y_body_fat, Y_muscle_mass, Y_bone_mass, Y_bone_density
